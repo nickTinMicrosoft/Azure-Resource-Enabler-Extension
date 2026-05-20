@@ -146,9 +146,18 @@ class AzureResourceEnabler {
     await this.loadSettings();
     this.log('Extension initialized. Click refresh to scan.');
 
-    if (this.autoRefreshOnOpen) {
-      this.log('Auto-scan enabled, scanning...');
-      setTimeout(() => this.scanResources(), 300);
+    // Auto-login on load
+    try {
+      await this.authenticate();
+      this.log('Authenticated. Loading subscriptions...');
+      await this.loadSubscriptions();
+      if (this.autoRefreshOnOpen && this.selectedSubscription) {
+        this.log('Auto-scan enabled, scanning...');
+        this.scanResources();
+      }
+    } catch (err) {
+      this.debugLog(`Auto-login failed: ${err.message}`);
+      this.log('Click refresh to sign in and scan.');
     }
 
     // Listen for background refresh pings
