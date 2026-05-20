@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Azure Resource Enabler",
+  "description": "Discover and re-enable Azure resources disabled by nightly policy (storage keys, local auth, public network access, etc.)",
+  "version": "1.0.0",
+  "permissions": [
+    "identity",
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "host_permissions": [
+    "https://management.azure.com/*",
+    "https://login.microsoftonline.com/*",
+    "https://graph.microsoft.com/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://management.azure.com https://login.microsoftonline.com https://graph.microsoft.com;"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Azure Resource Enabler",
+    "default_icon": {
+      "16": "icon.png",
+      "32": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}
