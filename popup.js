@@ -129,7 +129,7 @@ class AzureResourceEnabler {
     this.graphUrl = 'https://graph.microsoft.com';
     this.defaultClientId = 'b75cf7c4-8802-401f-8daa-226d5cb55f78';
     this.clientId = this.defaultClientId;
-    this.tenantId = 'common';
+    this.tenantId = '17ab6ae4-62da-43e0-9140-dddeb0a17bf0';
     this.managementScopes = 'https://management.core.windows.net/user_impersonation offline_access openid profile';
     this.graphScopes = 'https://graph.microsoft.com/User.Read openid profile';
     this.refreshSafetyWindowMs = 3 * 60 * 1000;
