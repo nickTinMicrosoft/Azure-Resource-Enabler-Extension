@@ -34,31 +34,73 @@ This extension provides a single interface to detect all affected resources and 
 | Key Vaults | `publicNetworkAccess` | Set to `Enabled` |
 | Service Bus | `disableLocalAuth` | Set to `false` |
 
-## Installation
+---
 
-### 1. Load in Microsoft Edge
+## 🚀 Quick Start (5 minutes)
 
-1. Open Edge and go to `edge://extensions/`
-2. Enable **Developer mode** (toggle in the left sidebar)
-3. Click **Load unpacked**
-4. Select this folder
-5. Pin the extension to your toolbar
+### Step 1: Clone the Repo
 
-### 2. Azure AD App Registration
+```bash
+git clone https://github.com/nickTinMicrosoft/Azure-Resource-Enabler-Extension.git
+```
 
-You need an App Registration with these API permissions:
-- **Azure Service Management** → `user_impersonation` (Delegated)
-- **Microsoft Graph** → `User.Read` (Delegated)
+### Step 2: Load in Microsoft Edge
 
-Set the redirect URI to: `https://<extension-id>.chromiumapp.org/`
-(Find your extension ID on the `edge://extensions/` page)
+1. Open Edge and navigate to `edge://extensions/`
+2. Turn ON **Developer mode** (toggle on the left sidebar)
+3. Click **"Load unpacked"**
+4. Select the cloned `Azure-Resource-Enabler-Extension` folder
+5. **Copy your Extension ID** — it's shown on the extension card (e.g., `gjheemjihjelcpfmblppgogifohlimmc`)
 
-### 3. Configure the Extension
+### Step 3: Create an Azure AD App Registration
 
-1. Click the extension icon
-2. Click the ⚙ gear button
-3. Enter your App Registration Client ID
-4. Click Save
+> ⚠️ You need this once per tenant. If someone on your team already did this, skip to Step 4.
+
+1. Go to [Azure Portal → App Registrations → New Registration](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade)
+2. Set:
+   - **Name**: `Azure Resource Enabler Extension`
+   - **Supported account types**: "Accounts in this organizational directory only"
+   - **Redirect URI**: Select **Single-page application (SPA)** and enter:
+     ```
+     https://YOUR-EXTENSION-ID.chromiumapp.org/
+     ```
+     Replace `YOUR-EXTENSION-ID` with the ID from Step 2.
+3. Click **Register**
+4. Go to **API Permissions** → **Add a permission**:
+   - Add **Azure Service Management** → Delegated → `user_impersonation`
+   - Add **Microsoft Graph** → Delegated → `User.Read`
+5. (Optional) Click **"Grant admin consent"** if you have admin privileges
+6. Go to **Authentication** → Under "Advanced settings", set **Allow public client flows** to **Yes**
+7. Copy the **Application (client) ID**
+
+### Step 4: Configure the Extension
+
+1. Click the extension icon in your Edge toolbar (pin it first if needed)
+2. Click the **⚙** gear icon
+3. Paste your **Application (client) ID** from Step 3
+4. Click **Save**
+5. Click **⟳** to scan — you'll be prompted to sign in
+
+### Step 5 (Optional): Share with Colleagues
+
+Each person who installs the extension will get a **different Extension ID**. To support multiple users with a single App Registration:
+
+1. In the Azure Portal, go to your App Registration → **Authentication**
+2. Under **Single-page application** redirect URIs, add each person's redirect URI:
+   ```
+   https://THEIR-EXTENSION-ID.chromiumapp.org/
+   ```
+3. They configure the same Client ID in their extension settings
+
+---
+
+## Alternative: Use the Shared App Registration
+
+If your team already has a shared App Registration set up, just:
+1. Clone the repo and load the extension (Steps 1-2 above)
+2. Get the **Client ID** from your team
+3. Ask an admin to add your redirect URI (`https://YOUR-EXTENSION-ID.chromiumapp.org/`) to the app registration
+4. Configure the Client ID in the extension settings (Step 4 above)
 
 ## Usage
 
