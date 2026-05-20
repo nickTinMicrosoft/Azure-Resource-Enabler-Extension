@@ -127,7 +127,7 @@ class AzureResourceEnabler {
     // Config
     this.baseUrl = 'https://management.azure.com';
     this.graphUrl = 'https://graph.microsoft.com';
-    this.defaultClientId = 'b2f9922d-47b3-45de-be16-72911e143fa4';
+    this.defaultClientId = 'b75cf7c4-8802-401f-8daa-226d5cb55f78';
     this.clientId = this.defaultClientId;
     this.tenantId = 'common';
     this.managementScopes = 'https://management.core.windows.net/user_impersonation offline_access openid profile';
