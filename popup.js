@@ -21,6 +21,16 @@ const RESOURCE_HANDLERS = {
           url: `https://management.azure.com${resource.id}?api-version=2023-05-01`,
           body: { properties: { allowSharedKeyAccess: true } }
         })
+      },
+      {
+        id: 'publicNetworkAccess',
+        description: 'Public network access disabled',
+        isDisabled: (resource) => resource.properties?.publicNetworkAccess === 'Disabled',
+        fix: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2023-05-01`,
+          body: { properties: { publicNetworkAccess: 'Enabled' } }
+        })
       }
     ]
   },
@@ -105,6 +115,33 @@ const RESOURCE_HANDLERS = {
           method: 'PATCH',
           url: `https://management.azure.com${resource.id}?api-version=2022-10-01-preview`,
           body: { properties: { disableLocalAuth: false } }
+        })
+      }
+    ]
+  },
+  'Microsoft.MachineLearningServices/workspaces': {
+    label: 'AI Foundry',
+    icon: '🤖',
+    apiVersion: '2024-04-01',
+    checks: [
+      {
+        id: 'publicNetworkAccess',
+        description: 'Public network access disabled',
+        isDisabled: (resource) => resource.properties?.publicNetworkAccess === 'Disabled',
+        fix: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2024-04-01`,
+          body: { properties: { publicNetworkAccess: 'Enabled' } }
+        })
+      },
+      {
+        id: 'sharedKeyAccess',
+        description: 'Shared key access disabled (v1LegacyMode)',
+        isDisabled: (resource) => resource.properties?.v1LegacyMode === false && resource.properties?.allowKeyBasedAuthentication === false,
+        fix: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2024-04-01`,
+          body: { properties: { allowKeyBasedAuthentication: true } }
         })
       }
     ]
