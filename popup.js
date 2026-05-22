@@ -1,35 +1,49 @@
 /**
  * Azure Resource Enabler Extension
  * Discovers and re-enables Azure resources disabled by nightly policy.
+ * Also supports disabling checks and deleting resources.
  */
 
 // ─── Resource Handlers ─────────────────────────────────────────────────────────
-// Each handler defines how to detect and fix a specific resource type's disabled state.
+// Each handler defines how to detect, fix, and disable a specific resource type's state.
 
 const RESOURCE_HANDLERS = {
   'Microsoft.Storage/storageAccounts': {
     label: 'Storage Accounts',
     icon: '🗄️',
     apiVersion: '2023-05-01',
+    deleteApiVersion: '2023-05-01',
     checks: [
       {
         id: 'sharedKeyAccess',
         description: 'Shared key access disabled',
+        disableDescription: 'Disable Shared Key Access',
         isDisabled: (resource) => resource.properties?.allowSharedKeyAccess === false,
         fix: (resource) => ({
           method: 'PATCH',
           url: `https://management.azure.com${resource.id}?api-version=2023-05-01`,
           body: { properties: { allowSharedKeyAccess: true } }
+        }),
+        disable: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2023-05-01`,
+          body: { properties: { allowSharedKeyAccess: false } }
         })
       },
       {
         id: 'publicNetworkAccess',
         description: 'Public network access disabled',
+        disableDescription: 'Disable Public Network Access',
         isDisabled: (resource) => resource.properties?.publicNetworkAccess === 'Disabled',
         fix: (resource) => ({
           method: 'PATCH',
           url: `https://management.azure.com${resource.id}?api-version=2023-05-01`,
           body: { properties: { publicNetworkAccess: 'Enabled' } }
+        }),
+        disable: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2023-05-01`,
+          body: { properties: { publicNetworkAccess: 'Disabled' } }
         })
       }
     ]
@@ -38,15 +52,22 @@ const RESOURCE_HANDLERS = {
     label: 'Event Hubs',
     icon: '⚡',
     apiVersion: '2024-01-01',
+    deleteApiVersion: '2024-01-01',
     checks: [
       {
         id: 'localAuth',
         description: 'Local authentication disabled',
+        disableDescription: 'Disable Local Authentication',
         isDisabled: (resource) => resource.properties?.disableLocalAuth === true,
         fix: (resource) => ({
           method: 'PATCH',
           url: `https://management.azure.com${resource.id}?api-version=2024-01-01`,
           body: { properties: { disableLocalAuth: false } }
+        }),
+        disable: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2024-01-01`,
+          body: { properties: { disableLocalAuth: true } }
         })
       }
     ]
@@ -55,15 +76,22 @@ const RESOURCE_HANDLERS = {
     label: 'Azure SQL Servers',
     icon: '🛢️',
     apiVersion: '2023-08-01-preview',
+    deleteApiVersion: '2023-08-01-preview',
     checks: [
       {
         id: 'publicNetworkAccess',
         description: 'Public network access disabled',
+        disableDescription: 'Disable Public Network Access',
         isDisabled: (resource) => resource.properties?.publicNetworkAccess === 'Disabled',
         fix: (resource) => ({
           method: 'PATCH',
           url: `https://management.azure.com${resource.id}?api-version=2023-08-01-preview`,
           body: { properties: { publicNetworkAccess: 'Enabled' } }
+        }),
+        disable: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2023-08-01-preview`,
+          body: { properties: { publicNetworkAccess: 'Disabled' } }
         })
       }
     ]
@@ -72,15 +100,22 @@ const RESOURCE_HANDLERS = {
     label: 'Cosmos DB',
     icon: '🌐',
     apiVersion: '2024-05-15',
+    deleteApiVersion: '2024-05-15',
     checks: [
       {
         id: 'publicNetworkAccess',
         description: 'Public network access disabled',
+        disableDescription: 'Disable Public Network Access',
         isDisabled: (resource) => resource.properties?.publicNetworkAccess === 'Disabled',
         fix: (resource) => ({
           method: 'PATCH',
           url: `https://management.azure.com${resource.id}?api-version=2024-05-15`,
           body: { properties: { publicNetworkAccess: 'Enabled' } }
+        }),
+        disable: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2024-05-15`,
+          body: { properties: { publicNetworkAccess: 'Disabled' } }
         })
       }
     ]
@@ -89,15 +124,22 @@ const RESOURCE_HANDLERS = {
     label: 'Key Vaults',
     icon: '🔑',
     apiVersion: '2023-07-01',
+    deleteApiVersion: '2023-07-01',
     checks: [
       {
         id: 'publicNetworkAccess',
         description: 'Public network access disabled',
+        disableDescription: 'Disable Public Network Access',
         isDisabled: (resource) => resource.properties?.publicNetworkAccess === 'Disabled',
         fix: (resource) => ({
           method: 'PATCH',
           url: `https://management.azure.com${resource.id}?api-version=2023-07-01`,
           body: { properties: { publicNetworkAccess: 'Enabled' } }
+        }),
+        disable: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2023-07-01`,
+          body: { properties: { publicNetworkAccess: 'Disabled' } }
         })
       }
     ]
@@ -106,15 +148,22 @@ const RESOURCE_HANDLERS = {
     label: 'Service Bus',
     icon: '🚌',
     apiVersion: '2022-10-01-preview',
+    deleteApiVersion: '2022-10-01-preview',
     checks: [
       {
         id: 'localAuth',
         description: 'Local authentication disabled',
+        disableDescription: 'Disable Local Authentication',
         isDisabled: (resource) => resource.properties?.disableLocalAuth === true,
         fix: (resource) => ({
           method: 'PATCH',
           url: `https://management.azure.com${resource.id}?api-version=2022-10-01-preview`,
           body: { properties: { disableLocalAuth: false } }
+        }),
+        disable: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2022-10-01-preview`,
+          body: { properties: { disableLocalAuth: true } }
         })
       }
     ]
@@ -123,25 +172,38 @@ const RESOURCE_HANDLERS = {
     label: 'AI Foundry',
     icon: '🤖',
     apiVersion: '2024-04-01',
+    deleteApiVersion: '2024-04-01',
     checks: [
       {
         id: 'publicNetworkAccess',
         description: 'Public network access disabled',
+        disableDescription: 'Disable Public Network Access',
         isDisabled: (resource) => resource.properties?.publicNetworkAccess === 'Disabled',
         fix: (resource) => ({
           method: 'PATCH',
           url: `https://management.azure.com${resource.id}?api-version=2024-04-01`,
           body: { properties: { publicNetworkAccess: 'Enabled' } }
+        }),
+        disable: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2024-04-01`,
+          body: { properties: { publicNetworkAccess: 'Disabled' } }
         })
       },
       {
         id: 'sharedKeyAccess',
         description: 'Shared key access disabled (v1LegacyMode)',
+        disableDescription: 'Disable Shared Key Access',
         isDisabled: (resource) => resource.properties?.v1LegacyMode === false && resource.properties?.allowKeyBasedAuthentication === false,
         fix: (resource) => ({
           method: 'PATCH',
           url: `https://management.azure.com${resource.id}?api-version=2024-04-01`,
           body: { properties: { allowKeyBasedAuthentication: true } }
+        }),
+        disable: (resource) => ({
+          method: 'PATCH',
+          url: `https://management.azure.com${resource.id}?api-version=2024-04-01`,
+          body: { properties: { allowKeyBasedAuthentication: false } }
         })
       }
     ]
@@ -156,10 +218,13 @@ class AzureResourceEnabler {
     this.accessToken = null;
     this.resourceTokens = {};
     this.subscriptions = [];
-    this.disabledResources = []; // { resource, handler, check, handlerKey }
+    this.disabledResources = []; // { resource, handlerKey, handler, failedChecks, selected, working }
+    this.enabledResources = [];  // { resource, handlerKey, handler, passedChecks }
+    this.activeTab = 'disabled';
     this.selectedSubscription = null;
     this.debugMode = false;
     this.autoRefreshOnOpen = false;
+    this.deleteTarget = null; // resource pending delete confirmation
 
     // Config
     this.baseUrl = 'https://management.azure.com';
@@ -219,10 +284,19 @@ class AzureResourceEnabler {
       resourceList: document.getElementById('resourceList'),
       enableAllBtn: document.getElementById('enableAllBtn'),
       enableSelectedBtn: document.getElementById('enableSelectedBtn'),
+      actionBar: document.getElementById('actionBar'),
       logArea: document.getElementById('logArea'),
       debugToggle: document.getElementById('debugToggle'),
       autoRefreshToggle: document.getElementById('autoRefreshToggle'),
       logoutBtn: document.getElementById('logoutBtn'),
+      disabledCount: document.getElementById('disabledCount'),
+      enabledCount: document.getElementById('enabledCount'),
+      deleteModal: document.getElementById('deleteModal'),
+      deleteResourceName: document.getElementById('deleteResourceName'),
+      deleteResourceType: document.getElementById('deleteResourceType'),
+      deleteConfirmInput: document.getElementById('deleteConfirmInput'),
+      deleteCancelBtn: document.getElementById('deleteCancelBtn'),
+      deleteConfirmBtn: document.getElementById('deleteConfirmBtn'),
     };
   }
 
@@ -243,6 +317,22 @@ class AzureResourceEnabler {
       this.autoRefreshOnOpen = ev.target.checked;
       chrome.storage.local.set({ autoRefreshOnOpen: this.autoRefreshOnOpen });
     });
+
+    // Tab switching
+    document.querySelectorAll('.tab-bar .tab').forEach(tab => {
+      tab.addEventListener('click', (ev) => {
+        this.activeTab = ev.currentTarget.dataset.tab;
+        document.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
+        ev.currentTarget.classList.add('active');
+        this.renderResourceList();
+        this.updateActionBarVisibility();
+      });
+    });
+
+    // Delete modal
+    e.deleteCancelBtn.addEventListener('click', () => this.closeDeleteModal());
+    e.deleteConfirmInput.addEventListener('input', () => this.validateDeleteInput());
+    e.deleteConfirmBtn.addEventListener('click', () => this.confirmDelete());
   }
 
   // ─── Settings ──────────────────────────────────────────────────────────────
@@ -491,7 +581,9 @@ class AzureResourceEnabler {
   async logout() {
     await this.clearAuth();
     this.disabledResources = [];
+    this.enabledResources = [];
     this.renderResourceList();
+    this.updateTabCounts();
     this.log('Logged out. Tokens cleared.');
   }
 
@@ -517,6 +609,7 @@ class AzureResourceEnabler {
 
       this.log(`Scanning subscription: ${this.selectedSubscription.displayName}...`);
       this.disabledResources = [];
+      this.enabledResources = [];
 
       const handlerKeys = Object.keys(RESOURCE_HANDLERS);
       const totalSteps = handlerKeys.length;
@@ -531,17 +624,33 @@ class AzureResourceEnabler {
           this.debugLog(`Found ${resources.length} ${handler.label}`);
 
           for (const resource of resources) {
+            const failedChecks = [];
+            const passedChecks = [];
+
             for (const check of handler.checks) {
               if (check.isDisabled(resource)) {
-                this.disabledResources.push({
-                  resource,
-                  handlerKey,
-                  handler,
-                  check,
-                  selected: false,
-                  working: false
-                });
+                failedChecks.push(check);
+              } else {
+                passedChecks.push(check);
               }
+            }
+
+            if (failedChecks.length > 0) {
+              this.disabledResources.push({
+                resource,
+                handlerKey,
+                handler,
+                failedChecks,
+                selected: false,
+                working: false
+              });
+            } else {
+              this.enabledResources.push({
+                resource,
+                handlerKey,
+                handler,
+                passedChecks
+              });
             }
           }
         } catch (err) {
@@ -552,13 +661,16 @@ class AzureResourceEnabler {
       }
 
       this.updateProgress(100);
+      this.updateTabCounts();
       this.renderResourceList();
+      this.updateActionBarVisibility();
 
-      const count = this.disabledResources.length;
-      if (count === 0) {
-        this.log('✓ All resources are properly enabled. Nothing to fix.');
+      const disCount = this.disabledResources.length;
+      const enCount = this.enabledResources.length;
+      if (disCount === 0) {
+        this.log(`✓ All ${enCount} resources are properly enabled. Nothing to fix.`);
       } else {
-        this.log(`Found ${count} disabled resource setting${count > 1 ? 's' : ''}.`);
+        this.log(`Found ${disCount} disabled resource(s), ${enCount} enabled.`);
       }
     } catch (err) {
       this.logError(`Scan failed: ${err.message}`);
@@ -603,7 +715,9 @@ class AzureResourceEnabler {
     if (!isNaN(idx) && this.subscriptions[idx]) {
       this.selectedSubscription = this.subscriptions[idx];
       this.disabledResources = [];
+      this.enabledResources = [];
       this.renderResourceList();
+      this.updateTabCounts();
       this.scanResources();
     }
   }
@@ -618,21 +732,33 @@ class AzureResourceEnabler {
     this.renderResourceList();
 
     try {
-      const fixConfig = item.check.fix(item.resource);
-      this.log(`Enabling: ${item.resource.name} (${item.check.description})...`);
+      // Enable all failed checks for this resource
+      for (const check of item.failedChecks) {
+        const fixConfig = check.fix(item.resource);
+        this.log(`Enabling: ${item.resource.name} (${check.description})...`);
 
-      await this.makeApiCall(fixConfig.url, {
-        method: fixConfig.method,
-        body: JSON.stringify(fixConfig.body)
-      });
+        await this.makeApiCall(fixConfig.url, {
+          method: fixConfig.method,
+          body: JSON.stringify(fixConfig.body)
+        });
+      }
 
       this.log(`✓ Enabled: ${item.resource.name}`);
+      // Move to enabled list
+      const allChecks = item.handler.checks;
+      this.enabledResources.push({
+        resource: item.resource,
+        handlerKey: item.handlerKey,
+        handler: item.handler,
+        passedChecks: allChecks.slice()
+      });
       this.disabledResources.splice(index, 1);
     } catch (err) {
       this.logError(`Failed to enable ${item.resource.name}: ${err.message}`);
       item.working = false;
     }
 
+    this.updateTabCounts();
     this.renderResourceList();
     this.updateActionButtons();
   }
@@ -672,7 +798,7 @@ class AzureResourceEnabler {
     let fail = 0;
     const total = this.disabledResources.length;
 
-    // Work backwards through the array
+    // Work through the array
     while (this.disabledResources.length > 0) {
       const item = this.disabledResources[0];
       item.working = true;
@@ -680,10 +806,19 @@ class AzureResourceEnabler {
       this.updateProgress(((success + fail) / total) * 100);
 
       try {
-        const fixConfig = item.check.fix(item.resource);
-        await this.makeApiCall(fixConfig.url, {
-          method: fixConfig.method,
-          body: JSON.stringify(fixConfig.body)
+        for (const check of item.failedChecks) {
+          const fixConfig = check.fix(item.resource);
+          await this.makeApiCall(fixConfig.url, {
+            method: fixConfig.method,
+            body: JSON.stringify(fixConfig.body)
+          });
+        }
+        // Move to enabled
+        this.enabledResources.push({
+          resource: item.resource,
+          handlerKey: item.handlerKey,
+          handler: item.handler,
+          passedChecks: item.handler.checks.slice()
         });
         this.disabledResources.shift();
         success++;
@@ -697,15 +832,130 @@ class AzureResourceEnabler {
     }
 
     this.showProgress(false);
+    this.updateTabCounts();
     this.renderResourceList();
     this.updateActionButtons();
     this.log(`Done. ${success} enabled, ${fail} failed.`);
     this.elements.enableAllBtn.disabled = false;
   }
 
+  // ─── Disable Operations ────────────────────────────────────────────────────
+
+  async disableCheck(enabledIndex, checkId) {
+    const item = this.enabledResources[enabledIndex];
+    if (!item) return;
+
+    const check = item.handler.checks.find(c => c.id === checkId);
+    if (!check || !check.disable) return;
+
+    this.log(`⚠️ WARNING: Disabling ${check.disableDescription} on ${item.resource.name}...`);
+
+    try {
+      const disableConfig = check.disable(item.resource);
+      await this.makeApiCall(disableConfig.url, {
+        method: disableConfig.method,
+        body: JSON.stringify(disableConfig.body)
+      });
+
+      this.log(`✓ Disabled: ${item.resource.name} (${check.disableDescription})`);
+
+      // Move resource from enabled → disabled
+      this.enabledResources.splice(enabledIndex, 1);
+      this.disabledResources.push({
+        resource: item.resource,
+        handlerKey: item.handlerKey,
+        handler: item.handler,
+        failedChecks: [check],
+        selected: false,
+        working: false
+      });
+
+      this.updateTabCounts();
+      this.renderResourceList();
+    } catch (err) {
+      this.logError(`Failed to disable ${item.resource.name}: ${err.message}`);
+    }
+  }
+
+  // ─── Delete Operations ─────────────────────────────────────────────────────
+
+  openDeleteModal(resource, handlerKey, handler) {
+    this.deleteTarget = { resource, handlerKey, handler };
+    this.elements.deleteResourceName.textContent = resource.name;
+    this.elements.deleteResourceType.textContent = `${handler.icon} ${handler.label}`;
+    this.elements.deleteConfirmInput.value = '';
+    this.elements.deleteConfirmBtn.disabled = true;
+    this.elements.deleteModal.style.display = 'flex';
+    this.elements.deleteConfirmInput.focus();
+  }
+
+  closeDeleteModal() {
+    this.elements.deleteModal.style.display = 'none';
+    this.deleteTarget = null;
+    this.elements.deleteConfirmInput.value = '';
+  }
+
+  validateDeleteInput() {
+    if (!this.deleteTarget) return;
+    const input = this.elements.deleteConfirmInput.value;
+    this.elements.deleteConfirmBtn.disabled = input !== this.deleteTarget.resource.name;
+  }
+
+  async confirmDelete() {
+    if (!this.deleteTarget) return;
+    const { resource, handlerKey, handler } = this.deleteTarget;
+    const apiVersion = handler.deleteApiVersion || handler.apiVersion;
+    const url = `https://management.azure.com${resource.id}?api-version=${apiVersion}`;
+
+    this.log(`⚠️ Deleting resource: ${resource.name}...`);
+    this.closeDeleteModal();
+
+    try {
+      await this.makeApiCall(url, { method: 'DELETE' });
+      this.log(`✓ Deleted: ${resource.name}`);
+
+      // Remove from whichever list it was in
+      const disIdx = this.disabledResources.findIndex(r => r.resource.id === resource.id);
+      if (disIdx !== -1) {
+        this.disabledResources.splice(disIdx, 1);
+      }
+      const enIdx = this.enabledResources.findIndex(r => r.resource.id === resource.id);
+      if (enIdx !== -1) {
+        this.enabledResources.splice(enIdx, 1);
+      }
+
+      this.updateTabCounts();
+      this.renderResourceList();
+      this.updateActionButtons();
+    } catch (err) {
+      this.logError(`Failed to delete ${resource.name}: ${err.message}`);
+    }
+  }
+
   // ─── UI Rendering ──────────────────────────────────────────────────────────
 
+  updateTabCounts() {
+    this.elements.disabledCount.textContent = this.disabledResources.length;
+    this.elements.enabledCount.textContent = this.enabledResources.length;
+  }
+
+  updateActionBarVisibility() {
+    if (this.activeTab === 'disabled') {
+      this.elements.actionBar.style.display = 'flex';
+    } else {
+      this.elements.actionBar.style.display = 'none';
+    }
+  }
+
   renderResourceList() {
+    if (this.activeTab === 'disabled') {
+      this.renderDisabledList();
+    } else {
+      this.renderEnabledList();
+    }
+  }
+
+  renderDisabledList() {
     const container = this.elements.resourceList;
 
     if (this.disabledResources.length === 0) {
@@ -734,17 +984,19 @@ class AzureResourceEnabler {
         const rg = this.extractResourceGroup(item.resource.id);
         const working = item.working ? 'working' : '';
         const checked = item.selected ? 'checked' : '';
+        const issuesHtml = item.failedChecks.map(c => c.description).join(', ');
 
         html += `<div class="resource-item">
           <input type="checkbox" class="checkbox" data-index="${item.index}" ${checked} ${item.working ? 'disabled' : ''}>
           <div class="resource-info">
             <div class="resource-name" title="${item.resource.name}">${item.resource.name}</div>
             <div class="resource-detail">${rg} • ${item.resource.location || 'N/A'}</div>
-            <div class="resource-issue">${item.check.description}</div>
+            <div class="resource-issue">${issuesHtml}</div>
           </div>
           <button class="enable-btn ${working}" data-index="${item.index}" ${item.working ? 'disabled' : ''}>
             ${item.working ? '...' : 'Enable'}
           </button>
+          <button class="btn-delete" data-index="${item.index}" title="Delete resource">🗑️</button>
         </div>`;
       }
     }
@@ -759,6 +1011,16 @@ class AzureResourceEnabler {
       });
     });
 
+    container.querySelectorAll('.btn-delete').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        const idx = parseInt(ev.currentTarget.dataset.index, 10);
+        const item = this.disabledResources[idx];
+        if (item) {
+          this.openDeleteModal(item.resource, item.handlerKey, item.handler);
+        }
+      });
+    });
+
     container.querySelectorAll('.checkbox').forEach(cb => {
       cb.addEventListener('change', (ev) => {
         const idx = parseInt(ev.target.dataset.index, 10);
@@ -768,6 +1030,107 @@ class AzureResourceEnabler {
     });
 
     this.updateActionButtons();
+  }
+
+  renderEnabledList() {
+    const container = this.elements.resourceList;
+
+    if (this.enabledResources.length === 0) {
+      container.innerHTML = '<div class="empty-state">No enabled resources found</div>';
+      return;
+    }
+
+    // Group by handler type
+    const groups = {};
+    this.enabledResources.forEach((item, idx) => {
+      const key = item.handlerKey;
+      if (!groups[key]) {
+        groups[key] = { handler: item.handler, items: [] };
+      }
+      groups[key].items.push({ ...item, index: idx });
+    });
+
+    let html = '';
+    for (const [key, group] of Object.entries(groups)) {
+      html += `<div class="resource-group-header resource-group-header--enabled">
+        ${group.handler.icon} ${group.handler.label}
+        <span class="badge badge--enabled">${group.items.length}</span>
+      </div>`;
+
+      for (const item of group.items) {
+        const rg = this.extractResourceGroup(item.resource.id);
+        const badgesHtml = item.passedChecks.map(c =>
+          `<span class="status-badge enabled">${c.id}</span>`
+        ).join(' ');
+
+        // Build disable dropdown options
+        const disableOptions = item.handler.checks.map(c =>
+          `<label class="disable-option" data-index="${item.index}" data-check-id="${c.id}">
+            <span>${c.disableDescription}</span>
+          </label>`
+        ).join('');
+
+        html += `<div class="resource-item resource-item--enabled">
+          <div class="resource-info">
+            <div class="resource-name" title="${item.resource.name}">${item.handler.icon} ${item.resource.name}</div>
+            <div class="resource-detail">${rg} • ${item.resource.location || 'N/A'}</div>
+            <div class="resource-badges">${badgesHtml}</div>
+          </div>
+          <div class="resource-actions-enabled">
+            <div class="disable-dropdown-wrapper">
+              <button class="btn-disable-toggle" data-index="${item.index}">Disable ▾</button>
+              <div class="disable-dropdown" data-index="${item.index}" style="display:none">
+                ${disableOptions}
+              </div>
+            </div>
+            <button class="btn-delete" data-index="${item.index}" title="Delete resource">🗑️</button>
+          </div>
+        </div>`;
+      }
+    }
+
+    container.innerHTML = html;
+
+    // Attach disable dropdown toggle listeners
+    container.querySelectorAll('.btn-disable-toggle').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const idx = ev.currentTarget.dataset.index;
+        const dropdown = container.querySelector(`.disable-dropdown[data-index="${idx}"]`);
+        // Close all other dropdowns
+        container.querySelectorAll('.disable-dropdown').forEach(d => {
+          if (d !== dropdown) d.style.display = 'none';
+        });
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+      });
+    });
+
+    // Attach disable option listeners
+    container.querySelectorAll('.disable-option').forEach(opt => {
+      opt.addEventListener('click', (ev) => {
+        const idx = parseInt(ev.currentTarget.dataset.index, 10);
+        const checkId = ev.currentTarget.dataset.checkId;
+        this.disableCheck(idx, checkId);
+      });
+    });
+
+    // Attach delete listeners
+    container.querySelectorAll('.btn-delete').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        const idx = parseInt(ev.currentTarget.dataset.index, 10);
+        const item = this.enabledResources[idx];
+        if (item) {
+          this.openDeleteModal(item.resource, item.handlerKey, item.handler);
+        }
+      });
+    });
+
+    // Close dropdowns on outside click
+    document.addEventListener('click', () => {
+      container.querySelectorAll('.disable-dropdown').forEach(d => {
+        d.style.display = 'none';
+      });
+    }, { once: true });
   }
 
   updateActionButtons() {
@@ -851,7 +1214,7 @@ class AzureResourceEnabler {
           const err = await retryResp.text();
           throw new Error(`API error ${retryResp.status}: ${err}`);
         }
-        return retryResp.status === 204 ? {} : await retryResp.json();
+        return retryResp.status === 204 || retryResp.status === 200 && retryResp.headers.get('content-length') === '0' ? {} : await retryResp.json().catch(() => ({}));
       }
 
       if (!resp.ok) {
@@ -859,7 +1222,8 @@ class AzureResourceEnabler {
         throw new Error(`API error ${resp.status}: ${err}`);
       }
 
-      return resp.status === 204 ? {} : await resp.json();
+      if (resp.status === 204 || resp.status === 202) return {};
+      return await resp.json().catch(() => ({}));
     } catch (err) {
       clearTimeout(timeout);
       if (err.name === 'AbortError') {

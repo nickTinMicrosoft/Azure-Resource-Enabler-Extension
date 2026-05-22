@@ -40,13 +40,33 @@
         </select>
     </div>
 
+    <div class="tab-bar">
+      <button class="tab active" data-tab="disabled">⚠️ Disabled (<span id="disabledCount">0</span>)</button>
+      <button class="tab" data-tab="enabled">✓ Enabled (<span id="enabledCount">0</span>)</button>
+    </div>
+
     <div class="resource-list-container" id="resourceList">
         <div class="empty-state">Click refresh to scan for disabled resources</div>
     </div>
 
-    <div class="action-bar">
+    <div class="action-bar" id="actionBar">
         <button id="enableAllBtn" class="btn-enable-all" disabled>Re-enable All</button>
         <button id="enableSelectedBtn" class="btn-enable-selected" disabled>Re-enable Selected</button>
+    </div>
+
+    <div class="modal-overlay" id="deleteModal" style="display:none">
+      <div class="modal">
+        <h3>⚠️ Delete Resource</h3>
+        <p>You are about to permanently delete:</p>
+        <p class="modal-resource-name" id="deleteResourceName"></p>
+        <p class="modal-resource-type" id="deleteResourceType"></p>
+        <p>Type the resource name to confirm:</p>
+        <input type="text" id="deleteConfirmInput" autocomplete="off">
+        <div class="modal-actions">
+          <button id="deleteCancelBtn" class="btn-cancel">Cancel</button>
+          <button id="deleteConfirmBtn" class="btn-danger" disabled>Delete</button>
+        </div>
+      </div>
     </div>
 
     <div class="log-section">

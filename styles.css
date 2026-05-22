@@ -7,6 +7,8 @@
   --color-success-hover: #0e6e0e;
   --color-danger: #D83B01;
   --color-danger-hover: #c23400;
+  --color-warning: #ca5010;
+  --color-warning-hover: #a33d0b;
   --color-neutral-dark: #323130;
   --color-neutral-mid: #605e5c;
   --color-neutral-light: #8a8886;
@@ -460,4 +462,242 @@ body {
 .resource-list-container::-webkit-scrollbar-thumb {
   background: var(--color-neutral-light);
   border-radius: 3px;
+}
+
+/* Tab Bar */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.tab-bar .tab {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--color-neutral-lighter);
+  border-radius: 20px;
+  background-color: var(--color-white);
+  color: var(--color-neutral-mid);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.tab-bar .tab:hover {
+  background-color: var(--color-neutral-lightest);
+}
+
+.tab-bar .tab.active {
+  background-color: var(--color-primary);
+  color: var(--color-white);
+  border-color: var(--color-primary);
+}
+
+.tab-bar .tab.active[data-tab="enabled"] {
+  background-color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+/* Enabled resource items */
+.resource-item--enabled {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.resource-group-header--enabled .badge--enabled {
+  background-color: var(--color-success);
+  color: var(--color-white);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.resource-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+
+.resource-actions-enabled {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Disable dropdown */
+.disable-dropdown-wrapper {
+  position: relative;
+}
+
+.btn-disable-toggle {
+  padding: 4px 10px;
+  background-color: var(--color-warning);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+}
+
+.btn-disable-toggle:hover {
+  background-color: var(--color-warning-hover);
+}
+
+.disable-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 180px;
+  background-color: var(--color-white);
+  border: 1px solid var(--color-neutral-lighter);
+  border-radius: var(--border-radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 50;
+  padding: 4px 0;
+}
+
+.disable-option {
+  display: block;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--color-neutral-dark);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.disable-option:hover {
+  background-color: var(--color-neutral-lightest);
+}
+
+/* Delete button */
+.btn-delete {
+  padding: 4px 8px;
+  background-color: var(--color-neutral-lighter);
+  border: 1px solid var(--color-neutral-lighter);
+  border-radius: var(--border-radius);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.btn-delete:hover {
+  background-color: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-white);
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--color-white);
+  border-radius: 8px;
+  padding: 24px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.modal h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  color: var(--color-neutral-dark);
+}
+
+.modal p {
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--color-neutral-mid);
+}
+
+.modal-resource-name {
+  font-weight: 700;
+  color: var(--color-neutral-dark) !important;
+  font-size: 14px !important;
+}
+
+.modal-resource-type {
+  font-size: 12px !important;
+  color: var(--color-neutral-light) !important;
+}
+
+.modal input[type="text"] {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-neutral-light);
+  border-radius: var(--border-radius);
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.modal input[type="text"]:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.btn-cancel {
+  padding: 8px 16px;
+  background-color: var(--color-neutral-lightest);
+  color: var(--color-neutral-dark);
+  border: 1px solid var(--color-neutral-lighter);
+  border-radius: var(--border-radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-cancel:hover {
+  background-color: var(--color-neutral-lighter);
+}
+
+.btn-danger {
+  padding: 8px 16px;
+  background-color: var(--color-danger);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--color-danger-hover);
+}
+
+.btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
