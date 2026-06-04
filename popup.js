@@ -291,6 +291,8 @@ class AzureResourceEnabler {
       logoutBtn: document.getElementById('logoutBtn'),
       disabledCount: document.getElementById('disabledCount'),
       enabledCount: document.getElementById('enabledCount'),
+      selectAllToolbar: document.getElementById('selectAllToolbar'),
+      selectAllCheckbox: document.getElementById('selectAllCheckbox'),
       deleteModal: document.getElementById('deleteModal'),
       deleteResourceName: document.getElementById('deleteResourceName'),
       deleteResourceType: document.getElementById('deleteResourceType'),
@@ -327,6 +329,11 @@ class AzureResourceEnabler {
         this.renderResourceList();
         this.updateActionBarVisibility();
       });
+    });
+
+    // Select all checkbox
+    e.selectAllCheckbox.addEventListener('change', (ev) => {
+      this.onSelectAllChange(ev.target.checked);
     });
 
     // Delete modal
@@ -944,6 +951,7 @@ class AzureResourceEnabler {
       this.elements.actionBar.style.display = 'flex';
     } else {
       this.elements.actionBar.style.display = 'none';
+      this.elements.selectAllToolbar.style.display = 'none';
     }
   }
 
@@ -960,8 +968,12 @@ class AzureResourceEnabler {
 
     if (this.disabledResources.length === 0) {
       container.innerHTML = '<div class="empty-state">No disabled resources found</div>';
+      this.elements.selectAllToolbar.style.display = 'none';
       return;
     }
+
+    // Show select-all toolbar
+    this.elements.selectAllToolbar.style.display = 'flex';
 
     // Group by handler type
     const groups = {};
@@ -975,7 +987,12 @@ class AzureResourceEnabler {
 
     let html = '';
     for (const [key, group] of Object.entries(groups)) {
+      const allChecked = group.items.every(i => i.selected);
+      const someChecked = group.items.some(i => i.selected);
+      const categoryChecked = allChecked ? 'checked' : '';
+
       html += `<div class="resource-group-header">
+        <input type="checkbox" class="category-checkbox" data-handler-key="${key}" ${categoryChecked} title="Select all ${group.handler.label}">
         ${group.handler.icon} ${group.handler.label}
         <span class="badge">${group.items.length}</span>
       </div>`;
@@ -987,7 +1004,7 @@ class AzureResourceEnabler {
         const issuesHtml = item.failedChecks.map(c => c.description).join(', ');
 
         html += `<div class="resource-item">
-          <input type="checkbox" class="checkbox" data-index="${item.index}" ${checked} ${item.working ? 'disabled' : ''}>
+          <input type="checkbox" class="checkbox" data-index="${item.index}" data-handler-key="${key}" ${checked} ${item.working ? 'disabled' : ''}>
           <div class="resource-info">
             <div class="resource-name" title="${item.resource.name}">${item.resource.name}</div>
             <div class="resource-detail">${rg} • ${item.resource.location || 'N/A'}</div>
@@ -1002,6 +1019,16 @@ class AzureResourceEnabler {
     }
 
     container.innerHTML = html;
+
+    // Set indeterminate state for category checkboxes after rendering
+    container.querySelectorAll('.category-checkbox').forEach(cb => {
+      const key = cb.dataset.handlerKey;
+      const groupItems = this.disabledResources.filter(r => r.handlerKey === key);
+      const checkedCount = groupItems.filter(r => r.selected).length;
+      if (checkedCount > 0 && checkedCount < groupItems.length) {
+        cb.indeterminate = true;
+      }
+    });
 
     // Attach event listeners
     container.querySelectorAll('.enable-btn').forEach(btn => {
@@ -1023,13 +1050,112 @@ class AzureResourceEnabler {
 
     container.querySelectorAll('.checkbox').forEach(cb => {
       cb.addEventListener('change', (ev) => {
+        ev.stopPropagation();
         const idx = parseInt(ev.target.dataset.index, 10);
+        const handlerKey = ev.target.dataset.handlerKey;
         this.disabledResources[idx].selected = ev.target.checked;
+        this.updateCategoryCheckbox(handlerKey);
+        this.updateSelectAllCheckbox();
         this.updateActionButtons();
       });
     });
 
+    // Category checkbox listeners
+    container.querySelectorAll('.category-checkbox').forEach(cb => {
+      cb.addEventListener('change', (ev) => {
+        ev.stopPropagation();
+        const key = ev.target.dataset.handlerKey;
+        this.onCategoryCheckboxChange(key, ev.target.checked);
+      });
+    });
+
+    this.updateSelectAllCheckbox();
     this.updateActionButtons();
+  }
+
+  onSelectAllChange(checked) {
+    this.disabledResources.forEach(item => {
+      if (!item.working) {
+        item.selected = checked;
+      }
+    });
+    // Update all individual checkboxes
+    const container = this.elements.resourceList;
+    container.querySelectorAll('.checkbox').forEach(cb => {
+      const idx = parseInt(cb.dataset.index, 10);
+      if (!this.disabledResources[idx].working) {
+        cb.checked = checked;
+      }
+    });
+    // Update all category checkboxes
+    container.querySelectorAll('.category-checkbox').forEach(cb => {
+      cb.checked = checked;
+      cb.indeterminate = false;
+    });
+    this.updateActionButtons();
+  }
+
+  onCategoryCheckboxChange(handlerKey, checked) {
+    const container = this.elements.resourceList;
+    // Update data model
+    this.disabledResources.forEach((item, idx) => {
+      if (item.handlerKey === handlerKey && !item.working) {
+        item.selected = checked;
+      }
+    });
+    // Update individual checkboxes in this category
+    container.querySelectorAll(`.checkbox[data-handler-key="${handlerKey}"]`).forEach(cb => {
+      const idx = parseInt(cb.dataset.index, 10);
+      if (!this.disabledResources[idx].working) {
+        cb.checked = checked;
+      }
+    });
+    // Update the category checkbox itself (clear indeterminate)
+    const categoryCb = container.querySelector(`.category-checkbox[data-handler-key="${handlerKey}"]`);
+    if (categoryCb) {
+      categoryCb.indeterminate = false;
+    }
+    this.updateSelectAllCheckbox();
+    this.updateActionButtons();
+  }
+
+  updateCategoryCheckbox(handlerKey) {
+    const container = this.elements.resourceList;
+    const categoryCb = container.querySelector(`.category-checkbox[data-handler-key="${handlerKey}"]`);
+    if (!categoryCb) return;
+
+    const groupItems = this.disabledResources.filter(r => r.handlerKey === handlerKey);
+    const checkedCount = groupItems.filter(r => r.selected).length;
+
+    if (checkedCount === 0) {
+      categoryCb.checked = false;
+      categoryCb.indeterminate = false;
+    } else if (checkedCount === groupItems.length) {
+      categoryCb.checked = true;
+      categoryCb.indeterminate = false;
+    } else {
+      categoryCb.checked = false;
+      categoryCb.indeterminate = true;
+    }
+  }
+
+  updateSelectAllCheckbox() {
+    const cb = this.elements.selectAllCheckbox;
+    if (!cb) return;
+
+    const total = this.disabledResources.length;
+    const checkedCount = this.disabledResources.filter(r => r.selected).length;
+
+    if (checkedCount === 0) {
+      cb.checked = false;
+      cb.indeterminate = false;
+    } else if (checkedCount === total) {
+      cb.checked = true;
+      cb.indeterminate = false;
+    } else {
+      cb.checked = false;
+      cb.indeterminate = true;
+    }
   }
 
   renderEnabledList() {
