@@ -1,6 +1,6 @@
 # Azure Resource Enabler Extension — Project Documentation
 
-> **Classification:** Internal | **Version:** 1.0 | **Last Updated:** June 3, 2026
+> **Classification:** Internal | **Version:** 1.1 | **Last Updated:** June 9, 2026
 
 ---
 
@@ -181,6 +181,21 @@ The entire application is contained in a single-class design (`AzureResourceEnab
 - [ ] Partial selection shows indeterminate (tri-state) checkbox
 - [ ] Master "Select All" above the list controls everything
 
+#### US-8: SQL Database Status Monitor
+> **As an** Azure engineer using SQL Serverless databases with auto-pause enabled,
+> **I want to** view the runtime state (Online, Paused, Resuming) of my serverless databases without waking them up,
+> **So that** I can safely verify which databases are paused before deciding to connect.
+
+**Acceptance Criteria:**
+- [ ] New "🗃️ SQL Status" tab displayed alongside existing Disabled/Enabled tabs
+- [ ] Databases grouped by parent SQL Server
+- [ ] Color-coded status badges displayed per database (green = Online, gray = Paused, yellow = Resuming)
+- [ ] Optional filter to show only serverless-tier databases
+- [ ] Tab is purely informational — no enable/disable/delete actions available
+- [ ] ARM GET call does NOT trigger auto-resume on paused serverless databases
+- [ ] Status data refreshes when user clicks "Refresh" or on auto-scan
+- [ ] Uses ARM REST API: `GET .../Microsoft.Sql/servers/{server}/databases?api-version=2023-08-01-preview`
+
 ---
 
 ## 3. Feature Inventory
@@ -212,6 +227,7 @@ The entire application is contained in a single-class design (`AzureResourceEnab
 | 21 | Category "Select All" Checkboxes | Group header checkboxes that select/deselect all items in that resource category. | 3 | ✅ Complete |
 | 22 | Master "Select All" | Toolbar checkbox above the resource list that selects/deselects everything. | 3 | ✅ Complete |
 | 23 | Tri-State Indeterminate Logic | Category and master checkboxes show indeterminate state when partially selected. | 3 | ✅ Complete |
+| 24 | SQL Database Status Monitor | New "🗃️ SQL Status" tab displaying runtime state (Online/Paused/Resuming) of Azure SQL Serverless databases via read-only ARM GET calls that do not trigger auto-resume. Databases grouped by SQL Server with color-coded status badges. | 4 | 🔨 In Development |
 
 ### Resource Types Supported
 
@@ -635,6 +651,12 @@ Since each Edge installation generates a unique Extension ID, team distribution 
 
 ## 7. Future Roadmap
 
+### 🔨 In Development
+
+| Enhancement | Description | Estimated Effort | Business Value | Status |
+|-------------|-------------|-----------------|----------------|--------|
+| SQL Database Status Monitor | A new "🗃️ SQL Status" tab that displays the runtime state (Online, Paused, Resuming) of Azure SQL Serverless databases without waking them. Uses ARM management-plane GET calls (`Microsoft.Sql/servers/{server}/databases?api-version=2023-08-01-preview`) that are safe and never trigger auto-resume. Databases grouped by SQL Server with color-coded badges (green=Online, gray=Paused, yellow=Resuming). Optional filter for serverless-tier only. Purely informational — no modification actions. | 1–2 days | Eliminates accidental wake-ups from Portal/SSMS; saves serverless compute costs; provides instant visibility into database pause state; complements existing policy-remediation workflow | 🔨 Sprint 4 |
+
 ### High Priority
 
 | Enhancement | Description | Estimated Effort | Business Value |
@@ -767,7 +789,7 @@ Since each Edge installation generates a unique Extension ID, team distribution 
 
 ---
 
-*Document generated: June 3, 2026*
+*Document generated: June 9, 2026*
 *Project Owner: Azure Platform Engineering Team*
 *Document Author: Project Management Office*
 *Review Status: Final — Ready for Stakeholder Review*

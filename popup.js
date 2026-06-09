@@ -225,6 +225,8 @@ class AzureResourceEnabler {
     this.debugMode = false;
     this.autoRefreshOnOpen = false;
     this.deleteTarget = null; // resource pending delete confirmation
+    this.sqlDatabases = []; // { serverName, serverResourceGroup, dbName, dbId, status, skuName, isServerless, location }
+    this.serverlessOnly = false;
 
     // Config
     this.baseUrl = 'https://management.azure.com';
@@ -299,6 +301,9 @@ class AzureResourceEnabler {
       deleteConfirmInput: document.getElementById('deleteConfirmInput'),
       deleteCancelBtn: document.getElementById('deleteCancelBtn'),
       deleteConfirmBtn: document.getElementById('deleteConfirmBtn'),
+      sqlDbCount: document.getElementById('sqlDbCount'),
+      sqlFilterToolbar: document.getElementById('sqlFilterToolbar'),
+      serverlessOnlyToggle: document.getElementById('serverlessOnlyToggle'),
     };
   }
 
@@ -329,6 +334,13 @@ class AzureResourceEnabler {
         this.renderResourceList();
         this.updateActionBarVisibility();
       });
+    });
+
+    // Serverless only toggle
+    e.serverlessOnlyToggle.addEventListener('change', () => {
+      this.serverlessOnly = e.serverlessOnlyToggle.checked;
+      this.updateSqlDbCount();
+      this.renderResourceList();
     });
 
     // Select all checkbox
@@ -679,11 +691,96 @@ class AzureResourceEnabler {
       } else {
         this.log(`Found ${disCount} disabled resource(s), ${enCount} enabled.`);
       }
+
+      // Also scan SQL database status
+      await this.scanSqlDatabases();
     } catch (err) {
       this.logError(`Scan failed: ${err.message}`);
     } finally {
       this.showProgress(false);
     }
+  }
+
+  async scanSqlDatabases() {
+    try {
+      if (!this.selectedSubscription) return;
+      this.sqlDatabases = [];
+      this.log('Scanning SQL database status...');
+
+      // Get all SQL servers
+      const servers = await this.getResourcesOfType(
+        this.selectedSubscription.subscriptionId,
+        'Microsoft.Sql/servers',
+        '2023-08-01-preview'
+      );
+
+      if (servers.length === 0) {
+        this.log('No SQL servers found.');
+        this.updateSqlDbCount();
+        this.renderResourceList();
+        return;
+      }
+
+      this.debugLog(`Found ${servers.length} SQL server(s). Fetching databases...`);
+
+      // Fetch databases for each server (batch 5 at a time to avoid throttling)
+      const batchSize = 5;
+      for (let i = 0; i < servers.length; i += batchSize) {
+        const batch = servers.slice(i, i + batchSize);
+        const results = await Promise.allSettled(
+          batch.map(server => this.fetchDatabasesForServer(server))
+        );
+
+        for (const result of results) {
+          if (result.status === 'fulfilled' && result.value) {
+            this.sqlDatabases.push(...result.value);
+          }
+        }
+      }
+
+      const serverlessCount = this.sqlDatabases.filter(db => db.isServerless).length;
+      this.log(`Found ${this.sqlDatabases.length} database(s) across ${servers.length} server(s) (${serverlessCount} serverless).`);
+      this.updateSqlDbCount();
+      this.renderResourceList();
+    } catch (err) {
+      this.logError(`SQL database scan failed: ${err.message}`);
+    }
+  }
+
+  async fetchDatabasesForServer(server) {
+    try {
+      const url = `${this.baseUrl}${server.id}/databases?api-version=2023-08-01-preview`;
+      const data = await this.makeApiCall(url);
+      const databases = data.value || [];
+
+      // Extract resource group from server ID
+      const rgMatch = server.id.match(/\/resourceGroups\/([^/]+)\//i);
+      const resourceGroup = rgMatch ? rgMatch[1] : 'Unknown';
+
+      return databases
+        .filter(db => db.name.toLowerCase() !== 'master') // Skip system DB
+        .map(db => ({
+          serverName: server.name,
+          serverResourceGroup: resourceGroup,
+          dbName: db.name,
+          dbId: db.id,
+          status: db.properties?.status || 'Unknown',
+          skuName: db.sku?.name || 'Unknown',
+          isServerless: /^GP_S_/i.test(db.sku?.name || ''),
+          location: db.location || server.location
+        }));
+    } catch (err) {
+      this.debugLog(`Error fetching databases for server ${server.name}: ${err.message}`);
+      return [];
+    }
+  }
+
+  updateSqlDbCount() {
+    const count = this.serverlessOnly
+      ? this.sqlDatabases.filter(db => db.isServerless).length
+      : this.sqlDatabases.length;
+    const el = document.getElementById('sqlDbCount');
+    if (el) el.textContent = count;
   }
 
   async getResourcesOfType(subscriptionId, resourceType, apiVersion) {
@@ -723,6 +820,7 @@ class AzureResourceEnabler {
       this.selectedSubscription = this.subscriptions[idx];
       this.disabledResources = [];
       this.enabledResources = [];
+      this.sqlDatabases = [];
       this.renderResourceList();
       this.updateTabCounts();
       this.scanResources();
@@ -953,9 +1051,16 @@ class AzureResourceEnabler {
       this.elements.actionBar.style.display = 'none';
       this.elements.selectAllToolbar.style.display = 'none';
     }
+    if (this.activeTab !== 'sqlstatus' && this.elements.sqlFilterToolbar) {
+      this.elements.sqlFilterToolbar.style.display = 'none';
+    }
   }
 
   renderResourceList() {
+    if (this.activeTab === 'sqlstatus') {
+      this.renderSqlStatusList();
+      return;
+    }
     if (this.activeTab === 'disabled') {
       this.renderDisabledList();
     } else {
@@ -963,8 +1068,70 @@ class AzureResourceEnabler {
     }
   }
 
+  updateSqlDbCount() {
+    let databases = this.sqlDatabases || [];
+    if (this.serverlessOnly) {
+      databases = databases.filter(db => db.isServerless);
+    }
+    if (this.elements.sqlDbCount) {
+      this.elements.sqlDbCount.textContent = databases.length;
+    }
+  }
+
+  renderSqlStatusList() {
+    const container = this.elements.resourceList;
+
+    // Show/hide toolbars
+    if (this.elements.sqlFilterToolbar) this.elements.sqlFilterToolbar.style.display = '';
+    if (this.elements.selectAllToolbar) this.elements.selectAllToolbar.style.display = 'none';
+    if (this.elements.actionBar) this.elements.actionBar.style.display = 'none';
+
+    let databases = this.sqlDatabases || [];
+    if (this.serverlessOnly) {
+      databases = databases.filter(db => db.isServerless);
+    }
+
+    if (databases.length === 0) {
+      container.innerHTML = '<div class="empty-state">No SQL databases found. Click refresh to scan.</div>';
+      return;
+    }
+
+    // Group by server
+    const grouped = {};
+    for (const db of databases) {
+      const key = db.serverName;
+      if (!grouped[key]) grouped[key] = { resourceGroup: db.serverResourceGroup, databases: [] };
+      grouped[key].databases.push(db);
+    }
+
+    let html = '';
+    for (const [serverName, group] of Object.entries(grouped)) {
+      html += `<div class="sql-server-group">`;
+      html += `<div class="sql-server-header">🛢️ ${serverName} <span class="sql-server-rg">(${group.resourceGroup})</span></div>`;
+
+      for (const db of group.databases) {
+        const statusClass = db.status.toLowerCase();
+        html += `<div class="sql-db-row">`;
+        html += `  <span class="sql-db-name">${db.dbName}</span>`;
+        html += `  <span class="sql-db-meta">`;
+        if (db.isServerless) {
+          html += `<span class="serverless-label">serverless</span> `;
+        }
+        html += `    <span class="sql-sku-badge">${db.skuName}</span>`;
+        html += `    <span class="sql-status-badge ${statusClass}">${db.status}</span>`;
+        html += `  </span>`;
+        html += `</div>`;
+      }
+
+      html += `</div>`;
+    }
+
+    container.innerHTML = html;
+  }
+
   renderDisabledList() {
     const container = this.elements.resourceList;
+    if (this.elements.sqlFilterToolbar) this.elements.sqlFilterToolbar.style.display = 'none';
 
     if (this.disabledResources.length === 0) {
       container.innerHTML = '<div class="empty-state">No disabled resources found</div>';
@@ -1160,6 +1327,7 @@ class AzureResourceEnabler {
 
   renderEnabledList() {
     const container = this.elements.resourceList;
+    if (this.elements.sqlFilterToolbar) this.elements.sqlFilterToolbar.style.display = 'none';
 
     if (this.enabledResources.length === 0) {
       container.innerHTML = '<div class="empty-state">No enabled resources found</div>';
