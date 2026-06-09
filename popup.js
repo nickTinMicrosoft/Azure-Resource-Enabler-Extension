@@ -258,6 +258,11 @@ class AzureResourceEnabler {
     this.deleteTarget = null; // resource pending delete confirmation
     this.sqlDatabases = []; // { serverName, serverResourceGroup, dbName, dbId, status, skuName, isServerless, location }
     this.serverlessOnly = false;
+    this.resourceCosts = {}; // { resourceId.toLowerCase(): { cost, currency } }
+    this.policyData = null; // { totalResources, compliantCount, nonCompliantCount, compliancePercentage, assignments: [] }
+    this.policyDetailAssignment = null;
+    this.policyDetailResources = [];
+    this.policyDetailLoading = false;
 
     // Config
     this.baseUrl = 'https://management.azure.com';
@@ -333,6 +338,7 @@ class AzureResourceEnabler {
       deleteCancelBtn: document.getElementById('deleteCancelBtn'),
       deleteConfirmBtn: document.getElementById('deleteConfirmBtn'),
       sqlDbCount: document.getElementById('sqlDbCount'),
+      policyNonCompliantCount: document.getElementById('policyNonCompliantCount'),
       sqlFilterToolbar: document.getElementById('sqlFilterToolbar'),
       serverlessOnlyToggle: document.getElementById('serverlessOnlyToggle'),
     };
@@ -415,6 +421,42 @@ class AzureResourceEnabler {
         btn.textContent = '✗';
         this.logError(`Failed to copy connection string: ${err.message}`);
         setTimeout(() => { btn.textContent = '📋'; btn.disabled = false; }, 2000);
+      }
+    });
+
+    // Event delegation for SQL pause/resume
+    e.resourceList.addEventListener('click', async (ev) => {
+        const resumeBtn = ev.target.closest('.sql-resume-btn');
+        const pauseBtn = ev.target.closest('.sql-pause-btn');
+
+        if (resumeBtn) {
+          await this.resumeSqlDatabase(resumeBtn);
+        } else if (pauseBtn) {
+          await this.pauseSqlDatabase(pauseBtn);
+        }
+    });
+
+    // Event delegation for policy drill-down
+    e.resourceList.addEventListener('click', async (ev) => {
+      const backBtn = ev.target.closest('.policy-back-btn');
+      if (backBtn && this.activeTab === 'policy') {
+        this.policyDetailAssignment = null;
+        this.policyDetailResources = [];
+        this.policyDetailLoading = false;
+        this.renderResourceList();
+        return;
+      }
+
+      const drillTarget = ev.target.closest('.policy-drill-btn') || ev.target.closest('.policy-row');
+      if (drillTarget && this.activeTab === 'policy') {
+        const assignmentId = drillTarget.dataset.assignmentId;
+        if (assignmentId && !this.policyDetailAssignment) {
+          this.policyDetailAssignment = assignmentId;
+          this.policyDetailResources = [];
+          this.policyDetailLoading = true;
+          this.renderResourceList();
+          await this.fetchPolicyDetailResources(assignmentId);
+        }
       }
     });
   }
@@ -666,8 +708,15 @@ class AzureResourceEnabler {
     await this.clearAuth();
     this.disabledResources = [];
     this.enabledResources = [];
+    this.sqlDatabases = [];
+    this.policyData = null;
+    this.policyDetailAssignment = null;
+    this.policyDetailResources = [];
+    this.policyDetailLoading = false;
     this.renderResourceList();
     this.updateTabCounts();
+    this.updateSqlDbCount();
+    this.updatePolicyCount();
     this.log('Logged out. Tokens cleared.');
   }
 
@@ -757,8 +806,14 @@ class AzureResourceEnabler {
         this.log(`Found ${disCount} disabled resource(s), ${enCount} enabled.`);
       }
 
+      // Fetch resource costs (non-blocking failure)
+      await this.fetchResourceCosts();
+
       // Also scan SQL database status
       await this.scanSqlDatabases();
+
+      // Scan policy compliance
+      await this.scanPolicyCompliance();
     } catch (err) {
       this.logError(`Scan failed: ${err.message}`);
     } finally {
@@ -840,12 +895,253 @@ class AzureResourceEnabler {
     }
   }
 
-  updateSqlDbCount() {
-    const count = this.serverlessOnly
-      ? this.sqlDatabases.filter(db => db.isServerless).length
-      : this.sqlDatabases.length;
-    const el = document.getElementById('sqlDbCount');
-    if (el) el.textContent = count;
+  // ─── Cost Management ──────────────────────────────────────────────────────
+  async fetchResourceCosts() {
+    if (!this.selectedSubscription) return;
+    
+    try {
+      this.debugLog('Fetching resource costs...');
+      const subscriptionId = this.selectedSubscription.subscriptionId;
+      
+      // Get current month date range
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const timeframe = 'MonthToDate';
+      
+      const url = `${this.baseUrl}/subscriptions/${subscriptionId}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`;
+      
+      const body = JSON.stringify({
+        type: 'ActualCost',
+        timeframe: timeframe,
+        dataset: {
+          granularity: 'None',
+          aggregation: {
+            totalCost: { name: 'Cost', function: 'Sum' }
+          },
+          grouping: [
+            { type: 'Dimension', name: 'ResourceId' }
+          ]
+        }
+      });
+      
+      const data = await this.makeApiCall(url, { method: 'POST', body });
+      
+      // Parse response - data.properties.rows is [[cost, resourceId, currency], ...]
+      this.resourceCosts = {};
+      if (data.properties?.rows) {
+        for (const row of data.properties.rows) {
+          const cost = row[0];
+          const resourceId = row[1];
+          const currency = row[2] || 'USD';
+          if (resourceId && cost > 0) {
+            this.resourceCosts[resourceId.toLowerCase()] = { cost, currency };
+          }
+        }
+      }
+      
+      this.debugLog(`Fetched costs for ${Object.keys(this.resourceCosts).length} resources.`);
+    } catch (err) {
+      this.debugLog(`Cost fetch failed (non-critical): ${err.message}`);
+      this.resourceCosts = {};
+    }
+  }
+
+  getResourceCostHtml(resourceId) {
+    if (!this.resourceCosts) return '';
+    const entry = this.resourceCosts[resourceId.toLowerCase()];
+    if (!entry || entry.cost < 0.01) return '';
+    
+    const formatted = entry.cost < 1 
+      ? `$${entry.cost.toFixed(2)}` 
+      : entry.cost < 100 
+        ? `$${entry.cost.toFixed(2)}`
+        : `$${Math.round(entry.cost).toLocaleString()}`;
+    
+    return `<span class="cost-badge" title="Month-to-date cost">${formatted}</span>`;
+  }
+
+  // ─── Policy Compliance ────────────────────────────────────────────────────
+
+  async scanPolicyCompliance() {
+    if (!this.selectedSubscription) return;
+
+    try {
+      this.log('Scanning policy compliance...');
+      const subscriptionId = this.selectedSubscription.subscriptionId;
+      const url = `${this.baseUrl}/subscriptions/${subscriptionId}/providers/Microsoft.PolicyInsights/policyStates/latest/summarize?api-version=2019-10-01`;
+      const data = await this.makeApiCall(url, { method: 'POST', body: JSON.stringify({}) });
+
+      const summary = data.value?.[0];
+      if (!summary) {
+        this.policyData = {
+          totalResources: 0,
+          compliantCount: 0,
+          nonCompliantCount: 0,
+          compliancePercentage: 100,
+          assignments: []
+        };
+        this.policyDetailAssignment = null;
+        this.policyDetailResources = [];
+        this.policyDetailLoading = false;
+        this.log('No policy data found.');
+        this.updatePolicyCount();
+        this.renderResourceList();
+        return;
+      }
+
+      const results = summary.results || {};
+      const totalResources = results.totalResources || 0;
+      const nonCompliantResources = results.nonCompliantResources || 0;
+      const compliantResources = Math.max(totalResources - nonCompliantResources, 0);
+      const compliancePercentage = totalResources > 0
+        ? Math.round((compliantResources / totalResources) * 100)
+        : 100;
+
+      const assignments = (summary.policyAssignments || [])
+        .filter(a => (a.results?.nonCompliantResources || 0) > 0)
+        .sort((a, b) => (b.results?.nonCompliantResources || 0) - (a.results?.nonCompliantResources || 0))
+        .slice(0, 20)
+        .map(a => ({
+          assignmentId: a.policyAssignmentId,
+          assignmentName: a.policyAssignmentId?.split('/').pop() || 'Unknown',
+          policyDefinitionId: a.policyDefinitions?.[0]?.policyDefinitionId || '',
+          policyDefinitionName: a.policyDefinitions?.[0]?.policyDefinitionId?.split('/').pop() || 'Unknown Policy',
+          nonCompliantResources: a.results?.nonCompliantResources || 0,
+          totalResources: a.results?.totalResources || 0
+        }));
+
+      this.policyData = {
+        totalResources,
+        compliantCount: compliantResources,
+        nonCompliantCount: nonCompliantResources,
+        compliancePercentage,
+        assignments
+      };
+
+      if (!assignments.some(a => a.assignmentId === this.policyDetailAssignment)) {
+        this.policyDetailAssignment = null;
+        this.policyDetailResources = [];
+        this.policyDetailLoading = false;
+      }
+
+      this.log(`Policy compliance: ${compliancePercentage}% (${nonCompliantResources} non-compliant resources across ${assignments.length} policies).`);
+      this.updatePolicyCount();
+      this.renderResourceList();
+    } catch (err) {
+      this.debugLog(`Policy compliance scan failed: ${err.message}`);
+      this.policyData = null;
+      this.policyDetailAssignment = null;
+      this.policyDetailResources = [];
+      this.policyDetailLoading = false;
+      this.updatePolicyCount();
+      if (this.activeTab === 'policy') {
+        this.renderResourceList();
+      }
+    }
+  }
+
+  async fetchPolicyDetailResources(assignmentId) {
+    if (!this.selectedSubscription) return;
+
+    try {
+      this.policyDetailLoading = true;
+      const subscriptionId = this.selectedSubscription.subscriptionId;
+      const filter = encodeURIComponent(`policyAssignmentId eq '${assignmentId}' and complianceState eq 'NonCompliant'`);
+      const url = `${this.baseUrl}/subscriptions/${subscriptionId}/providers/Microsoft.PolicyInsights/policyStates/latest/queryResults?api-version=2019-10-01&$filter=${filter}&$top=50`;
+      const data = await this.makeApiCall(url, { method: 'POST', body: JSON.stringify({}) });
+
+      this.policyDetailResources = (data.value || []).map(r => ({
+        resourceId: r.resourceId || '',
+        resourceName: r.resourceId?.split('/').pop() || 'Unknown',
+        resourceType: r.resourceType || 'Unknown',
+        resourceGroup: r.resourceGroup || 'Unknown',
+        complianceState: r.complianceState || 'NonCompliant',
+        policyDefinitionAction: r.policyDefinitionAction || 'Unknown',
+        timestamp: r.timestamp || ''
+      }));
+
+    } catch (err) {
+      this.logError(`Failed to fetch policy details: ${err.message}`);
+      this.policyDetailResources = [];
+    } finally {
+      this.policyDetailLoading = false;
+      this.renderResourceList();
+    }
+  }
+
+  updatePolicyCount() {
+    if (this.elements.policyNonCompliantCount) {
+      this.elements.policyNonCompliantCount.textContent = this.policyData?.nonCompliantCount || 0;
+    }
+  }
+
+  async resumeSqlDatabase(btn) {
+    const dbId = btn.dataset.dbId;
+    const dbName = btn.dataset.dbName;
+
+    try {
+      btn.disabled = true;
+      btn.textContent = '⏳ Resuming...';
+      this.log(`Resuming database: ${dbName}...`);
+
+      const url = `${this.baseUrl}${dbId}/resume?api-version=2023-08-01-preview`;
+      await this.makeApiCall(url, { method: 'POST', body: JSON.stringify({}) });
+
+      // Update local state
+      const db = this.sqlDatabases.find(d => d.dbId === dbId);
+      if (db) db.status = 'Resuming';
+
+      this.log(`✓ Resume initiated for ${dbName}. Status will update on next refresh.`);
+      this.renderResourceList();
+
+      // Auto-refresh status after 30 seconds
+      setTimeout(() => {
+        if (this.activeTab === 'sqlstatus') {
+          this.scanSqlDatabases();
+        }
+      }, 30000);
+    } catch (err) {
+      btn.textContent = '▶ Resume';
+      btn.disabled = false;
+      this.logError(`Failed to resume ${dbName}: ${err.message}`);
+    }
+  }
+
+  async pauseSqlDatabase(btn) {
+    const dbId = btn.dataset.dbId;
+    const dbName = btn.dataset.dbName;
+
+    // Confirmation prompt
+    if (!confirm(`Are you sure you want to PAUSE "${dbName}"?\n\nThis will make the database unavailable until manually resumed.`)) {
+      return;
+    }
+
+    try {
+      btn.disabled = true;
+      btn.textContent = '⏳ Pausing...';
+      this.log(`Pausing database: ${dbName}...`);
+
+      const url = `${this.baseUrl}${dbId}/pause?api-version=2023-08-01-preview`;
+      await this.makeApiCall(url, { method: 'POST', body: JSON.stringify({}) });
+
+      // Update local state
+      const db = this.sqlDatabases.find(d => d.dbId === dbId);
+      if (db) db.status = 'Pausing';
+
+      this.log(`✓ Pause initiated for ${dbName}. Status will update on next refresh.`);
+      this.renderResourceList();
+
+      // Auto-refresh status after 15 seconds
+      setTimeout(() => {
+        if (this.activeTab === 'sqlstatus') {
+          this.scanSqlDatabases();
+        }
+      }, 15000);
+    } catch (err) {
+      btn.textContent = '⏸ Pause';
+      btn.disabled = false;
+      this.logError(`Failed to pause ${dbName}: ${err.message}`);
+    }
   }
 
   async getResourcesOfType(subscriptionId, resourceType, apiVersion) {
@@ -886,8 +1182,15 @@ class AzureResourceEnabler {
       this.disabledResources = [];
       this.enabledResources = [];
       this.sqlDatabases = [];
+      this.resourceCosts = {};
+      this.policyData = null;
+      this.policyDetailAssignment = null;
+      this.policyDetailResources = [];
+      this.policyDetailLoading = false;
       this.renderResourceList();
       this.updateTabCounts();
+      this.updateSqlDbCount();
+      this.updatePolicyCount();
       this.scanResources();
     }
   }
@@ -1126,6 +1429,10 @@ class AzureResourceEnabler {
       this.renderSqlStatusList();
       return;
     }
+    if (this.activeTab === 'policy') {
+      this.renderPolicyList();
+      return;
+    }
     if (this.activeTab === 'disabled') {
       this.renderDisabledList();
     } else {
@@ -1184,11 +1491,111 @@ class AzureResourceEnabler {
         }
         html += `    <span class="sql-sku-badge">${db.skuName}</span>`;
         html += `    <span class="sql-status-badge ${statusClass}">${db.status}</span>`;
+        if (db.isServerless) {
+          if (db.status === 'Paused') {
+            html += `<button class="sql-action-btn sql-resume-btn" data-db-id="${db.dbId}" data-db-name="${db.dbName}" title="Resume database">▶ Resume</button>`;
+          } else if (db.status === 'Online') {
+            html += `<button class="sql-action-btn sql-pause-btn" data-db-id="${db.dbId}" data-db-name="${db.dbName}" title="Pause database">⏸ Pause</button>`;
+          }
+        }
         html += `  </span>`;
         html += `</div>`;
       }
 
       html += `</div>`;
+    }
+
+    container.innerHTML = html;
+  }
+
+  renderPolicyList() {
+    const container = this.elements.resourceList;
+
+    if (this.elements.sqlFilterToolbar) this.elements.sqlFilterToolbar.style.display = 'none';
+    if (this.elements.selectAllToolbar) this.elements.selectAllToolbar.style.display = 'none';
+    if (this.elements.actionBar) this.elements.actionBar.style.display = 'none';
+
+    if (this.policyDetailAssignment) {
+      this.renderPolicyDetailView(container);
+      return;
+    }
+
+    if (!this.policyData) {
+      container.innerHTML = '<div class="empty-state">Click refresh to scan policy compliance.</div>';
+      return;
+    }
+
+    const { compliancePercentage, totalResources, nonCompliantCount, assignments } = this.policyData;
+    let scoreClass = 'good';
+    if (compliancePercentage < 70) scoreClass = 'bad';
+    else if (compliancePercentage < 90) scoreClass = 'warn';
+
+    let html = `<div class="policy-summary">`;
+    html += `<div class="policy-score ${scoreClass}">`;
+    html += `<span class="policy-score-number">${compliancePercentage}%</span>`;
+    html += `<span class="policy-score-label">Compliant</span>`;
+    html += `</div>`;
+    html += `<div class="policy-stats">`;
+    html += `<span>${totalResources} total resources</span>`;
+    html += `<span class="policy-stat-bad">${nonCompliantCount} non-compliant</span>`;
+    html += `</div>`;
+    html += `</div>`;
+
+    if (assignments.length === 0) {
+      html += '<div class="empty-state">All resources are compliant! 🎉</div>';
+    } else {
+      html += `<div class="policy-list-header">Top Non-Compliant Policies</div>`;
+
+      for (const assignment of assignments) {
+        html += `<div class="policy-row" data-assignment-id="${assignment.assignmentId}">`;
+        html += `<div class="policy-row-main">`;
+        html += `<span class="policy-name">${assignment.policyDefinitionName}</span>`;
+        html += `<span class="policy-assignment-name">${assignment.assignmentName}</span>`;
+        html += `</div>`;
+        html += `<div class="policy-row-meta">`;
+        html += `<span class="policy-violation-count">${assignment.nonCompliantResources} violations</span>`;
+        html += `<button class="policy-drill-btn" data-assignment-id="${assignment.assignmentId}" title="View affected resources">→</button>`;
+        html += `</div>`;
+        html += `</div>`;
+      }
+    }
+
+    container.innerHTML = html;
+  }
+
+  renderPolicyDetailView(container) {
+    const assignment = this.policyData?.assignments?.find(a => a.assignmentId === this.policyDetailAssignment);
+    const assignmentName = assignment?.policyDefinitionName || 'Unknown Policy';
+    const remediationUrl = assignment?.assignmentId ? `https://portal.azure.com/#@/resource${assignment.assignmentId}` : '#';
+
+    let html = `<div class="policy-detail-header">`;
+    html += `<button class="policy-back-btn" title="Back to policy list">← Back</button>`;
+    html += `<span class="policy-detail-title">${assignmentName}</span>`;
+    if (assignment?.assignmentId) {
+      html += `<a href="${remediationUrl}" target="_blank" rel="noopener noreferrer" class="policy-portal-link" title="Open policy assignment in Azure Portal to remediate">🛠️ Remediate</a>`;
+    }
+    html += `</div>`;
+
+    if (this.policyDetailLoading) {
+      html += '<div class="empty-state">Loading affected resources...</div>';
+    } else if (this.policyDetailResources.length === 0) {
+      html += '<div class="empty-state">No affected resources found.</div>';
+    } else {
+      html += `<div class="policy-detail-count">${this.policyDetailResources.length} affected resource(s)</div>`;
+
+      for (const resource of this.policyDetailResources) {
+        const portalUrl = `https://portal.azure.com/#@/resource${resource.resourceId}`;
+        html += `<div class="policy-resource-row">`;
+        html += `<div class="policy-resource-info">`;
+        html += `<span class="policy-resource-name">${resource.resourceName}</span>`;
+        html += `<span class="policy-resource-type">${resource.resourceType}</span>`;
+        html += `<span class="policy-resource-rg">${resource.resourceGroup}</span>`;
+        html += `</div>`;
+        html += `<div class="policy-resource-actions">`;
+        html += `<a href="${portalUrl}" target="_blank" rel="noopener noreferrer" class="policy-portal-link" title="Open in Azure Portal">🌐 Portal</a>`;
+        html += `</div>`;
+        html += `</div>`;
+      }
     }
 
     container.innerHTML = html;
@@ -1242,7 +1649,7 @@ class AzureResourceEnabler {
         html += `<div class="resource-item">
           <input type="checkbox" class="checkbox" data-index="${item.index}" data-handler-key="${key}" ${checked} ${item.working ? 'disabled' : ''}>
           <div class="resource-info">
-            <div class="resource-name" title="${item.resource.name}">${item.resource.name}</div>
+            <div class="resource-name" title="${item.resource.name}">${item.resource.name}${this.getResourceCostHtml(item.resource.id)}</div>
             <div class="resource-detail">${rg} • ${item.resource.location || 'N/A'}</div>
             <div class="resource-issue">${issuesHtml}</div>
           </div>
@@ -1440,7 +1847,7 @@ class AzureResourceEnabler {
 
         html += `<div class="resource-item resource-item--enabled">
           <div class="resource-info">
-            <div class="resource-name" title="${item.resource.name}">${item.handler.icon} ${item.resource.name}</div>
+            <div class="resource-name" title="${item.resource.name}">${item.handler.icon} ${item.resource.name}${this.getResourceCostHtml(item.resource.id)}</div>
             <div class="resource-detail">${rg} • ${item.resource.location || 'N/A'}</div>
             <div class="resource-badges">${badgesHtml}</div>
           </div>
