@@ -20,6 +20,7 @@ This extension provides a single interface to detect all affected resources and 
 - 🔍 **Auto-Discovery** — Scans your subscription for all disabled resources across multiple service types
 - 📋 **Grouped View** — Resources organized by type with clear descriptions of what's disabled
 - ✅ **Selective Enable** — Toggle individual resources or bulk re-enable all at once
+- 🗃️ **SQL Database Status** — See which Azure SQL Serverless databases are Paused vs Online without waking them
 - 🔄 **Extensible** — Easy to add new resource types via handler pattern
 - ⚙️ **Configurable** — Custom App Registration Client ID, debug mode, auto-scan on open
 
@@ -112,6 +113,16 @@ If your team already has a shared App Registration set up, just:
    - Click **Enable** on individual items
    - Check multiple items and click **Re-enable Selected**
    - Click **Re-enable All** to fix everything
+
+### SQL Database Status Tab
+
+Click the **🗃️ SQL Status** tab to see the runtime state of all Azure SQL databases in your subscription:
+
+- **Online** (green) — database is running
+- **Paused** (orange) — serverless database is auto-paused (saving cost)
+- **Resuming** (blue) — database is waking up
+
+Use the **"Serverless only"** filter to show only serverless-tier databases. This view is completely read-only — it uses ARM management-plane GET calls that do **not** wake paused databases.
 
 ## Required Azure Permissions
 
