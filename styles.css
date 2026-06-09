@@ -831,3 +831,26 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+
+/* Connection String Copy Button */
+.conn-str-btn {
+  background: none;
+  border: 1px solid var(--color-neutral-lighter);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 12px;
+  transition: all 0.2s;
+  min-width: 28px;
+  text-align: center;
+}
+
+.conn-str-btn:hover {
+  background: var(--color-neutral-lightest);
+  border-color: var(--color-primary);
+}
+
+.conn-str-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}

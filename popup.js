@@ -13,6 +13,13 @@ const RESOURCE_HANDLERS = {
     icon: '🗄️',
     apiVersion: '2023-05-01',
     deleteApiVersion: '2023-05-01',
+    getConnectionString: async (resource, makeApiCall) => {
+      const url = `https://management.azure.com${resource.id}/listKeys?api-version=2023-05-01`;
+      const data = await makeApiCall(url, { method: 'POST', body: JSON.stringify({}) });
+      const key = data.keys?.[0]?.value;
+      if (!key) throw new Error('No keys found');
+      return `DefaultEndpointsProtocol=https;AccountName=${resource.name};AccountKey=${key};EndpointSuffix=core.windows.net`;
+    },
     checks: [
       {
         id: 'sharedKeyAccess',
@@ -53,6 +60,12 @@ const RESOURCE_HANDLERS = {
     icon: '⚡',
     apiVersion: '2024-01-01',
     deleteApiVersion: '2024-01-01',
+    getConnectionString: async (resource, makeApiCall) => {
+      const url = `https://management.azure.com${resource.id}/authorizationRules/RootManageSharedAccessKey/listKeys?api-version=2024-01-01`;
+      const data = await makeApiCall(url, { method: 'POST', body: JSON.stringify({}) });
+      if (!data.primaryConnectionString) throw new Error('No connection string returned. The RootManageSharedAccessKey rule may not exist.');
+      return data.primaryConnectionString;
+    },
     checks: [
       {
         id: 'localAuth',
@@ -77,6 +90,9 @@ const RESOURCE_HANDLERS = {
     icon: '🛢️',
     apiVersion: '2023-08-01-preview',
     deleteApiVersion: '2023-08-01-preview',
+    getConnectionString: async (resource) => {
+      return `Server=tcp:${resource.name}.database.windows.net,1433;`;
+    },
     checks: [
       {
         id: 'publicNetworkAccess',
@@ -101,6 +117,12 @@ const RESOURCE_HANDLERS = {
     icon: '🌐',
     apiVersion: '2024-05-15',
     deleteApiVersion: '2024-05-15',
+    getConnectionString: async (resource, makeApiCall) => {
+      const url = `https://management.azure.com${resource.id}/listKeys?api-version=2024-05-15`;
+      const data = await makeApiCall(url, { method: 'POST', body: JSON.stringify({}) });
+      if (!data.primaryMasterKey) throw new Error('No primary key returned');
+      return `AccountEndpoint=https://${resource.name}.documents.azure.com:443/;AccountKey=${data.primaryMasterKey};`;
+    },
     checks: [
       {
         id: 'publicNetworkAccess',
@@ -125,6 +147,9 @@ const RESOURCE_HANDLERS = {
     icon: '🔑',
     apiVersion: '2023-07-01',
     deleteApiVersion: '2023-07-01',
+    getConnectionString: async (resource) => {
+      return `https://${resource.name}.vault.azure.net/`;
+    },
     checks: [
       {
         id: 'publicNetworkAccess',
@@ -149,6 +174,12 @@ const RESOURCE_HANDLERS = {
     icon: '🚌',
     apiVersion: '2022-10-01-preview',
     deleteApiVersion: '2022-10-01-preview',
+    getConnectionString: async (resource, makeApiCall) => {
+      const url = `https://management.azure.com${resource.id}/authorizationRules/RootManageSharedAccessKey/listKeys?api-version=2022-10-01-preview`;
+      const data = await makeApiCall(url, { method: 'POST', body: JSON.stringify({}) });
+      if (!data.primaryConnectionString) throw new Error('No connection string returned. The RootManageSharedAccessKey rule may not exist.');
+      return data.primaryConnectionString;
+    },
     checks: [
       {
         id: 'localAuth',
@@ -352,6 +383,40 @@ class AzureResourceEnabler {
     e.deleteCancelBtn.addEventListener('click', () => this.closeDeleteModal());
     e.deleteConfirmInput.addEventListener('input', () => this.validateDeleteInput());
     e.deleteConfirmBtn.addEventListener('click', () => this.confirmDelete());
+
+    // Event delegation for connection string copy
+    e.resourceList.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('.conn-str-btn');
+      if (!btn) return;
+
+      const resourceId = btn.dataset.resourceId;
+      const handlerKey = btn.dataset.handlerKey;
+      const handler = RESOURCE_HANDLERS[handlerKey];
+
+      if (!handler?.getConnectionString) return;
+
+      try {
+        btn.textContent = '⏳';
+        btn.disabled = true;
+
+        // Find the resource object
+        const allResources = [...this.disabledResources, ...this.enabledResources];
+        const entry = allResources.find(r => r.resource.id === resourceId);
+        if (!entry) throw new Error('Resource not found');
+
+        const connStr = await handler.getConnectionString(entry.resource, (url, opts) => this.makeApiCall(url, opts));
+
+        await navigator.clipboard.writeText(connStr);
+        btn.textContent = '✓';
+        this.log(`Copied connection string for ${entry.resource.name}`);
+
+        setTimeout(() => { btn.textContent = '📋'; btn.disabled = false; }, 2000);
+      } catch (err) {
+        btn.textContent = '✗';
+        this.logError(`Failed to copy connection string: ${err.message}`);
+        setTimeout(() => { btn.textContent = '📋'; btn.disabled = false; }, 2000);
+      }
+    });
   }
 
   // ─── Settings ──────────────────────────────────────────────────────────────
@@ -1170,6 +1235,10 @@ class AzureResourceEnabler {
         const checked = item.selected ? 'checked' : '';
         const issuesHtml = item.failedChecks.map(c => c.description).join(', ');
 
+        const connStrBtn = RESOURCE_HANDLERS[key]?.getConnectionString
+          ? `<button class="conn-str-btn" data-resource-id="${item.resource.id}" data-handler-key="${key}" title="Copy connection string">📋</button>`
+          : '';
+
         html += `<div class="resource-item">
           <input type="checkbox" class="checkbox" data-index="${item.index}" data-handler-key="${key}" ${checked} ${item.working ? 'disabled' : ''}>
           <div class="resource-info">
@@ -1177,6 +1246,7 @@ class AzureResourceEnabler {
             <div class="resource-detail">${rg} • ${item.resource.location || 'N/A'}</div>
             <div class="resource-issue">${issuesHtml}</div>
           </div>
+          ${connStrBtn}
           <button class="enable-btn ${working}" data-index="${item.index}" ${item.working ? 'disabled' : ''}>
             ${item.working ? '...' : 'Enable'}
           </button>
@@ -1364,6 +1434,10 @@ class AzureResourceEnabler {
           </label>`
         ).join('');
 
+        const connStrBtn = RESOURCE_HANDLERS[key]?.getConnectionString
+          ? `<button class="conn-str-btn" data-resource-id="${item.resource.id}" data-handler-key="${key}" title="Copy connection string">📋</button>`
+          : '';
+
         html += `<div class="resource-item resource-item--enabled">
           <div class="resource-info">
             <div class="resource-name" title="${item.resource.name}">${item.handler.icon} ${item.resource.name}</div>
@@ -1371,6 +1445,7 @@ class AzureResourceEnabler {
             <div class="resource-badges">${badgesHtml}</div>
           </div>
           <div class="resource-actions-enabled">
+            ${connStrBtn}
             <div class="disable-dropdown-wrapper">
               <button class="btn-disable-toggle" data-index="${item.index}">Disable ▾</button>
               <div class="disable-dropdown" data-index="${item.index}" style="display:none">
