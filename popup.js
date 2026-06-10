@@ -259,6 +259,7 @@ class AzureResourceEnabler {
     this.sqlDatabases = []; // { serverName, serverResourceGroup, dbName, dbId, status, skuName, isServerless, location }
     this.serverlessOnly = false;
     this.resourceCosts = {}; // { resourceId.toLowerCase(): { cost, currency } }
+    this.previousMonthCosts = {}; // { resourceId.toLowerCase(): { cost, currency } }
     this.policyData = null; // { totalResources, compliantCount, nonCompliantCount, compliancePercentage, assignments: [] }
     this.policyDetailAssignment = null;
     this.policyDetailResources = [];
@@ -948,31 +949,21 @@ class AzureResourceEnabler {
     try {
       this.debugLog('Fetching resource costs...');
       const subscriptionId = this.selectedSubscription.subscriptionId;
-      
-      // Get current month date range
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const timeframe = 'MonthToDate';
-      
       const url = `${this.baseUrl}/subscriptions/${subscriptionId}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`;
       
+      // Fetch current month (MTD)
       const body = JSON.stringify({
         type: 'ActualCost',
-        timeframe: timeframe,
+        timeframe: 'MonthToDate',
         dataset: {
           granularity: 'None',
-          aggregation: {
-            totalCost: { name: 'Cost', function: 'Sum' }
-          },
-          grouping: [
-            { type: 'Dimension', name: 'ResourceId' }
-          ]
+          aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
+          grouping: [{ type: 'Dimension', name: 'ResourceId' }]
         }
       });
       
       const data = await this.makeApiCall(url, { method: 'POST', body });
       
-      // Parse response - data.properties.rows is [[cost, resourceId, currency], ...]
       this.resourceCosts = {};
       if (data.properties?.rows) {
         for (const row of data.properties.rows) {
@@ -986,11 +977,84 @@ class AzureResourceEnabler {
       }
       
       this.debugLog(`Fetched costs for ${Object.keys(this.resourceCosts).length} resources.`);
+
+      // Fetch previous month for trend comparison
+      await this.fetchPreviousMonthCosts(subscriptionId);
+
       this.updateBudgetDisplay();
       this.renderResourceList();
     } catch (err) {
       this.debugLog(`Cost fetch failed (non-critical): ${err.message}`);
       this.resourceCosts = {};
+    }
+  }
+
+  async fetchPreviousMonthCosts(subscriptionId) {
+    try {
+      const now = new Date();
+      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0); // last day of prev month
+
+      const from = prevMonthStart.toISOString().split('T')[0];
+      const to = prevMonthEnd.toISOString().split('T')[0];
+
+      const url = `${this.baseUrl}/subscriptions/${subscriptionId}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`;
+      const body = JSON.stringify({
+        type: 'ActualCost',
+        timeframe: 'Custom',
+        timePeriod: { from, to },
+        dataset: {
+          granularity: 'None',
+          aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
+          grouping: [{ type: 'Dimension', name: 'ResourceId' }]
+        }
+      });
+
+      const data = await this.makeApiCall(url, { method: 'POST', body });
+      this.previousMonthCosts = {};
+      if (data.properties?.rows) {
+        for (const row of data.properties.rows) {
+          const cost = row[0];
+          const resourceId = row[1];
+          const currency = row[2] || 'USD';
+          if (resourceId && cost > 0) {
+            this.previousMonthCosts[resourceId.toLowerCase()] = { cost, currency };
+          }
+        }
+      }
+      this.debugLog(`Fetched previous month costs for ${Object.keys(this.previousMonthCosts).length} resources.`);
+    } catch (err) {
+      this.debugLog(`Previous month cost fetch failed (non-critical): ${err.message}`);
+      this.previousMonthCosts = {};
+    }
+  }
+
+  getResourceTrendIcon(resourceId) {
+    if (!this.resourceCosts || !this.previousMonthCosts) return '';
+    const current = this.resourceCosts[resourceId.toLowerCase()];
+    const previous = this.previousMonthCosts[resourceId.toLowerCase()];
+    if (!current || current.cost < 0.01) return '';
+
+    // If no previous data, treat as new (trending up)
+    if (!previous || previous.cost < 0.01) {
+      return '<span class="trend-icon trend-up" title="New spend this month">📈</span>';
+    }
+
+    // Normalize: compare current MTD daily rate vs previous month daily rate
+    const now = new Date();
+    const dayOfMonth = now.getDate();
+    const currentDailyRate = current.cost / Math.max(dayOfMonth, 1);
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    const prevDaysInMonth = prevMonthEnd.getDate();
+    const prevDailyRate = previous.cost / prevDaysInMonth;
+
+    const threshold = 0.05; // 5% change threshold
+    if (currentDailyRate > prevDailyRate * (1 + threshold)) {
+      return '<span class="trend-icon trend-up" title="Spending trending up vs last month">📈</span>';
+    } else if (currentDailyRate < prevDailyRate * (1 - threshold)) {
+      return '<span class="trend-icon trend-down" title="Spending trending down vs last month">📉</span>';
+    } else {
+      return '<span class="trend-icon trend-flat" title="Spending about the same... the sloth approves">🦥</span>';
     }
   }
 
@@ -1005,7 +1069,8 @@ class AzureResourceEnabler {
         ? `$${entry.cost.toFixed(2)}`
         : `$${Math.round(entry.cost).toLocaleString()}`;
     
-    return `<span class="cost-badge" title="Month-to-date cost">${formatted}</span>`;
+    const trend = this.getResourceTrendIcon(resourceId);
+    return `<span class="cost-badge" title="Month-to-date cost">${formatted}${trend}</span>`;
   }
 
   // ─── Policy Compliance ────────────────────────────────────────────────────

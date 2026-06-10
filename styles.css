@@ -1127,7 +1127,9 @@ body {
 
 /* Cost Badge */
 .cost-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   padding: 1px 6px;
   border-radius: 3px;
   font-size: 10px;
@@ -1136,6 +1138,13 @@ body {
   color: #8a6914;
   font-family: var(--font-mono);
   margin-left: 8px;
+}
+
+/* Trend Icons */
+.trend-icon {
+  font-size: 11px;
+  margin-left: 2px;
+  cursor: default;
 }
 
 /* Budget Bar */
