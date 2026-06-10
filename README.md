@@ -21,6 +21,11 @@ This extension provides a single interface to detect all affected resources and 
 - 📋 **Grouped View** — Resources organized by type with clear descriptions of what's disabled
 - ✅ **Selective Enable** — Toggle individual resources or bulk re-enable all at once
 - 🗃️ **SQL Database Status** — See which Azure SQL Serverless databases are Paused vs Online without waking them
+- 🏭 **Fabric Capacity Management** — Start/stop Fabric capacities, change SKUs across all subscriptions
+- 💰 **Budget Tracker** — Total month-to-date spend with editable budget threshold and color-coded alerts
+- 📈📉🦥 **Spending Trends** — Per-resource trend icons comparing current vs. previous month spend rate
+- 🔗 **Portal Deep Links** — Click any resource name to open it directly in the Azure Portal
+- 🛡️ **Policy Compliance** — View Azure Policy compliance status and drill into non-compliant resources
 - 🔄 **Extensible** — Easy to add new resource types via handler pattern
 - ⚙️ **Configurable** — Custom App Registration Client ID, debug mode, auto-scan on open
 
@@ -123,6 +128,37 @@ Click the **🗃️ SQL Status** tab to see the runtime state of all Azure SQL d
 - **Resuming** (blue) — database is waking up
 
 Use the **"Serverless only"** filter to show only serverless-tier databases. This view is completely read-only — it uses ARM management-plane GET calls that do **not** wake paused databases.
+
+### Fabric Capacity Tab
+
+Click the **🏭 Fabric** tab to manage Microsoft Fabric capacities across all your subscriptions:
+
+- View all Fabric capacities with status (Running/Paused) and current SKU
+- **Start/Stop** capacities individually or in batch (multi-select with checkboxes)
+- **Update SKU** — change capacity size (F2 through F2048)
+- Capacities grouped by subscription with cost badges
+
+### Budget Tracker
+
+The budget bar at the bottom shows your **total month-to-date spend** across all resources:
+
+- **Green** — total spend is more than $100 under budget
+- **Yellow** — total spend is within $100 of budget (or equal)
+- **Red** — total spend exceeds budget
+
+The budget input is editable (default: $1500) and persists across sessions. It is a local-only threshold — not connected to Azure Budget APIs.
+
+### Spending Trend Icons
+
+Each cost badge includes a trend indicator comparing this month's daily spending rate to last month:
+
+- 📈 — spending is trending **up** (daily rate >5% higher than last month)
+- 📉 — spending is trending **down** (daily rate >5% lower)
+- 🦥 — spending is **flat** (the sloth approves of your steady habits)
+
+### Portal Deep Links
+
+Every resource name is a **clickable hyperlink** that opens the resource directly in the Azure Portal. Use this to quickly access keys, connection strings, and configuration without navigating the portal manually.
 
 ## Required Azure Permissions
 

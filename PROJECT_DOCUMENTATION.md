@@ -1,6 +1,6 @@
 # Azure Resource Enabler Extension — Project Documentation
 
-> **Classification:** Internal | **Version:** 1.1 | **Last Updated:** June 9, 2026
+> **Classification:** Internal | **Version:** 2.0 | **Last Updated:** June 10, 2026
 
 ---
 
@@ -227,7 +227,13 @@ The entire application is contained in a single-class design (`AzureResourceEnab
 | 21 | Category "Select All" Checkboxes | Group header checkboxes that select/deselect all items in that resource category. | 3 | ✅ Complete |
 | 22 | Master "Select All" | Toolbar checkbox above the resource list that selects/deselects everything. | 3 | ✅ Complete |
 | 23 | Tri-State Indeterminate Logic | Category and master checkboxes show indeterminate state when partially selected. | 3 | ✅ Complete |
-| 24 | SQL Database Status Monitor | New "🗃️ SQL Status" tab displaying runtime state (Online/Paused/Resuming) of Azure SQL Serverless databases via read-only ARM GET calls that do not trigger auto-resume. Databases grouped by SQL Server with color-coded status badges. | 4 | 🔨 In Development |
+| 24 | SQL Database Status Monitor | New "🗃️ SQL Status" tab displaying runtime state (Online/Paused/Resuming) of Azure SQL Serverless databases via read-only ARM GET calls that do not trigger auto-resume. Databases grouped by SQL Server with color-coded status badges. | 4 | ✅ Complete |
+| 25 | Policy Compliance Tab | New "🛡️ Policy" tab showing Azure Policy compliance status with drill-down into non-compliant resources per policy assignment. | 5 | ✅ Complete |
+| 26 | Resource Cost Badges | Month-to-date cost displayed per resource via Azure Cost Management API. | 5 | ✅ Complete |
+| 27 | Fabric Capacity Management | New "🏭 Fabric" tab — discover, start/stop, and change SKUs for Microsoft Fabric capacities across all subscriptions. | 6 | ✅ Complete |
+| 28 | Budget Tracker | Editable budget threshold (default $1500) with color-coded total spend bar (green/yellow/red). Persisted locally. | 6 | ✅ Complete |
+| 29 | Azure Portal Deep Links | All resource names are hyperlinks to their Azure Portal blade for quick key/config access. | 6 | ✅ Complete |
+| 30 | Spending Trend Icons | Per-resource trend indicator (📈📉🦥) comparing current month daily rate vs previous month. | 6 | ✅ Complete |
 
 ### Resource Types Supported
 
