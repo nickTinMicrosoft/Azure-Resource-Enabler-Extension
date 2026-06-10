@@ -44,6 +44,7 @@
       <button class="tab active" data-tab="disabled">⚠️ Disabled (<span id="disabledCount">0</span>)</button>
       <button class="tab" data-tab="enabled">✓ Enabled (<span id="enabledCount">0</span>)</button>
       <button class="tab" data-tab="sqlstatus">🗃️ SQL Status (<span id="sqlDbCount">0</span>)</button>
+      <button class="tab" data-tab="fabric">🏭 Fabric (<span id="fabricCount">0</span>)</button>
       <button class="tab" data-tab="policy">🛡️ Policy (<span id="policyNonCompliantCount">0</span>)</button>
     </div>
 
@@ -60,9 +61,36 @@
         <div class="empty-state">Click refresh to scan for disabled resources</div>
     </div>
 
+    <div class="fabric-controls" id="fabricControls" style="display:none;">
+        <div class="fabric-sku-row">
+            <label for="fabricSkuSelect">SKU:</label>
+            <select id="fabricSkuSelect" disabled>
+                <option value="">Select a capacity first...</option>
+            </select>
+            <button id="fabricUpdateSkuBtn" class="btn-fabric-sku" disabled>Update SKU</button>
+        </div>
+        <div class="fabric-action-row">
+            <button id="fabricStartBtn" class="btn-fabric-start" disabled>Start Capacity</button>
+            <button id="fabricStopBtn" class="btn-fabric-stop" disabled>Stop Capacity</button>
+        </div>
+    </div>
+
     <div class="action-bar" id="actionBar">
         <button id="enableAllBtn" class="btn-enable-all" disabled>Re-enable All</button>
         <button id="enableSelectedBtn" class="btn-enable-selected" disabled>Re-enable Selected</button>
+    </div>
+
+    <div class="budget-bar" id="budgetBar">
+        <div class="budget-summary">
+            <span class="budget-total-label">Total MTD:</span>
+            <span class="budget-total-value" id="budgetTotalValue">$0.00</span>
+            <span class="budget-separator">/</span>
+            <span class="budget-input-wrapper">
+                $<input type="number" id="budgetInput" class="budget-input" value="1500" min="0" step="100" title="Monthly budget">
+            </span>
+            <span class="budget-label">budget</span>
+        </div>
+        <div class="budget-indicator" id="budgetIndicator"></div>
     </div>
 
     <div class="modal-overlay" id="deleteModal" style="display:none">

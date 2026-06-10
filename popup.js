@@ -264,6 +264,16 @@ class AzureResourceEnabler {
     this.policyDetailResources = [];
     this.policyDetailLoading = false;
 
+    // Fabric Capacity state
+    this.fabricCapacities = [];
+    this.fabricSelectedIndices = new Set();
+    this.fabricSelectedIndex = null;
+    this.fabricAvailableSkus = [];
+    this.fabricCosts = {}; // { resourceId.toLowerCase(): { cost, currency } }
+
+    // Budget state
+    this.budget = 1500;
+
     // Config
     this.baseUrl = 'https://management.azure.com';
     this.graphUrl = 'https://graph.microsoft.com';
@@ -273,6 +283,7 @@ class AzureResourceEnabler {
     this.managementScopes = 'https://management.core.windows.net/user_impersonation offline_access openid profile';
     this.graphScopes = 'https://graph.microsoft.com/User.Read openid profile';
     this.refreshSafetyWindowMs = 3 * 60 * 1000;
+    this.fabricApiVersion = '2023-11-01';
 
     // DOM elements (set in init)
     this.elements = {};
@@ -341,6 +352,18 @@ class AzureResourceEnabler {
       policyNonCompliantCount: document.getElementById('policyNonCompliantCount'),
       sqlFilterToolbar: document.getElementById('sqlFilterToolbar'),
       serverlessOnlyToggle: document.getElementById('serverlessOnlyToggle'),
+      // Fabric elements
+      fabricCount: document.getElementById('fabricCount'),
+      fabricControls: document.getElementById('fabricControls'),
+      fabricSkuSelect: document.getElementById('fabricSkuSelect'),
+      fabricUpdateSkuBtn: document.getElementById('fabricUpdateSkuBtn'),
+      fabricStartBtn: document.getElementById('fabricStartBtn'),
+      fabricStopBtn: document.getElementById('fabricStopBtn'),
+      // Budget elements
+      budgetBar: document.getElementById('budgetBar'),
+      budgetTotalValue: document.getElementById('budgetTotalValue'),
+      budgetInput: document.getElementById('budgetInput'),
+      budgetIndicator: document.getElementById('budgetIndicator'),
     };
   }
 
@@ -459,12 +482,28 @@ class AzureResourceEnabler {
         }
       }
     });
+
+    // Fabric capacity event listeners
+    e.fabricStartBtn.addEventListener('click', () => this.fabricStartCapacity());
+    e.fabricStopBtn.addEventListener('click', () => this.fabricStopCapacity());
+    e.fabricUpdateSkuBtn.addEventListener('click', () => this.fabricUpdateSku());
+    e.fabricSkuSelect.addEventListener('change', () => {
+      const hasSelection = this.fabricSelectedIndex !== null || this.fabricSelectedIndices.size > 0;
+      e.fabricUpdateSkuBtn.disabled = !hasSelection || !e.fabricSkuSelect.value;
+    });
+
+    // Budget input event listener
+    e.budgetInput.addEventListener('change', () => {
+      this.budget = parseFloat(e.budgetInput.value) || 0;
+      chrome.storage.local.set({ budget: this.budget });
+      this.updateBudgetDisplay();
+    });
   }
 
   // ─── Settings ──────────────────────────────────────────────────────────────
 
   async loadSettings() {
-    const data = await chrome.storage.local.get(['clientId', 'tenantId', 'debugMode', 'autoRefreshOnOpen']);
+    const data = await chrome.storage.local.get(['clientId', 'tenantId', 'debugMode', 'autoRefreshOnOpen', 'budget']);
     if (data.clientId) this.clientId = data.clientId;
     if (data.tenantId) this.tenantId = data.tenantId;
     if (data.debugMode) {
@@ -475,6 +514,10 @@ class AzureResourceEnabler {
       this.autoRefreshOnOpen = true;
       this.elements.autoRefreshToggle.checked = true;
     }
+    if (data.budget !== undefined && data.budget !== null) {
+      this.budget = parseFloat(data.budget) || 1500;
+    }
+    this.elements.budgetInput.value = this.budget;
     this.elements.clientIdInput.value = this.clientId !== this.defaultClientId ? this.clientId : '';
   }
 
@@ -814,6 +857,9 @@ class AzureResourceEnabler {
 
       // Scan policy compliance
       await this.scanPolicyCompliance();
+
+      // Scan Fabric capacities
+      await this.scanFabricCapacities();
     } catch (err) {
       this.logError(`Scan failed: ${err.message}`);
     } finally {
@@ -940,6 +986,8 @@ class AzureResourceEnabler {
       }
       
       this.debugLog(`Fetched costs for ${Object.keys(this.resourceCosts).length} resources.`);
+      this.updateBudgetDisplay();
+      this.renderResourceList();
     } catch (err) {
       this.debugLog(`Cost fetch failed (non-critical): ${err.message}`);
       this.resourceCosts = {};
@@ -1422,6 +1470,10 @@ class AzureResourceEnabler {
     if (this.activeTab !== 'sqlstatus' && this.elements.sqlFilterToolbar) {
       this.elements.sqlFilterToolbar.style.display = 'none';
     }
+    // Show/hide Fabric controls
+    if (this.elements.fabricControls) {
+      this.elements.fabricControls.style.display = this.activeTab === 'fabric' ? '' : 'none';
+    }
   }
 
   renderResourceList() {
@@ -1431,6 +1483,10 @@ class AzureResourceEnabler {
     }
     if (this.activeTab === 'policy') {
       this.renderPolicyList();
+      return;
+    }
+    if (this.activeTab === 'fabric') {
+      this.renderFabricList();
       return;
     }
     if (this.activeTab === 'disabled') {
@@ -1484,7 +1540,7 @@ class AzureResourceEnabler {
       for (const db of group.databases) {
         const statusClass = db.status.toLowerCase();
         html += `<div class="sql-db-row">`;
-        html += `  <span class="sql-db-name">${db.dbName}</span>`;
+        html += `  <span class="sql-db-name">${this.getResourceNameLink(db.dbName, db.dbId)}</span>`;
         html += `  <span class="sql-db-meta">`;
         if (db.isServerless) {
           html += `<span class="serverless-label">serverless</span> `;
@@ -1649,7 +1705,7 @@ class AzureResourceEnabler {
         html += `<div class="resource-item">
           <input type="checkbox" class="checkbox" data-index="${item.index}" data-handler-key="${key}" ${checked} ${item.working ? 'disabled' : ''}>
           <div class="resource-info">
-            <div class="resource-name" title="${item.resource.name}">${item.resource.name}${this.getResourceCostHtml(item.resource.id)}</div>
+            <div class="resource-name" title="${item.resource.name}">${this.getResourceNameLink(item.resource.name, item.resource.id)}${this.getResourceCostHtml(item.resource.id)}</div>
             <div class="resource-detail">${rg} • ${item.resource.location || 'N/A'}</div>
             <div class="resource-issue">${issuesHtml}</div>
           </div>
@@ -1847,7 +1903,7 @@ class AzureResourceEnabler {
 
         html += `<div class="resource-item resource-item--enabled">
           <div class="resource-info">
-            <div class="resource-name" title="${item.resource.name}">${item.handler.icon} ${item.resource.name}${this.getResourceCostHtml(item.resource.id)}</div>
+            <div class="resource-name" title="${item.resource.name}">${item.handler.icon} ${this.getResourceNameLink(item.resource.name, item.resource.id)}${this.getResourceCostHtml(item.resource.id)}</div>
             <div class="resource-detail">${rg} • ${item.resource.location || 'N/A'}</div>
             <div class="resource-badges">${badgesHtml}</div>
           </div>
@@ -2043,6 +2099,333 @@ class AzureResourceEnabler {
       return JSON.parse(atob(payload));
     } catch {
       return null;
+    }
+  }
+
+  // ─── Azure Portal Hyperlinks ────────────────────────────────────────────────
+
+  getResourceNameLink(name, resourceId) {
+    if (!resourceId) return name;
+    const portalUrl = `https://portal.azure.com/#@${encodeURIComponent(this.tenantId)}/resource${resourceId}`;
+    return `<a href="${portalUrl}" target="_blank" title="Open in Azure Portal">${name}</a>`;
+  }
+
+  // ─── Budget Tracking ────────────────────────────────────────────────────────
+
+  getTotalCost() {
+    let total = 0;
+    for (const entry of Object.values(this.resourceCosts || {})) {
+      total += entry.cost || 0;
+    }
+    // Also include Fabric costs
+    for (const entry of Object.values(this.fabricCosts || {})) {
+      total += entry.cost || 0;
+    }
+    return total;
+  }
+
+  updateBudgetDisplay() {
+    const total = this.getTotalCost();
+    const e = this.elements;
+    if (!e.budgetBar) return;
+
+    // Update total value display
+    const formatted = total < 100
+      ? `$${total.toFixed(2)}`
+      : `$${Math.round(total).toLocaleString()}`;
+    e.budgetTotalValue.textContent = formatted;
+
+    // Determine color: green if under by >$100, yellow if within $100, red if over
+    e.budgetBar.classList.remove('budget-green', 'budget-yellow', 'budget-red');
+    if (total > this.budget) {
+      e.budgetBar.classList.add('budget-red');
+    } else if (total >= this.budget - 100) {
+      e.budgetBar.classList.add('budget-yellow');
+    } else {
+      e.budgetBar.classList.add('budget-green');
+    }
+  }
+
+  // ─── Fabric Capacity Management ────────────────────────────────────────────
+
+  async scanFabricCapacities() {
+    if (!this.subscriptions || this.subscriptions.length === 0) return;
+
+    try {
+      this.debugLog('Scanning Fabric capacities...');
+      this.fabricCapacities = [];
+
+      for (const sub of this.subscriptions) {
+        try {
+          const url = `${this.baseUrl}/subscriptions/${sub.subscriptionId}/providers/Microsoft.Fabric/capacities?api-version=${this.fabricApiVersion}`;
+          const data = await this.makeApiCall(url, { method: 'GET' });
+          const capacities = data.value || [];
+          for (const cap of capacities) {
+            this.fabricCapacities.push({
+              ...cap,
+              subscriptionId: sub.subscriptionId,
+              subscriptionName: sub.displayName
+            });
+          }
+        } catch (err) {
+          if (!err.message.includes('404') && !err.message.includes('ResourceProviderNotRegistered')) {
+            this.debugLog(`Fabric scan error for ${sub.displayName}: ${err.message}`);
+          }
+        }
+      }
+
+      this.debugLog(`Found ${this.fabricCapacities.length} Fabric capacities.`);
+      if (this.elements.fabricCount) {
+        this.elements.fabricCount.textContent = this.fabricCapacities.length;
+      }
+
+      // Fetch costs for Fabric capacities
+      await this.fetchFabricCosts();
+
+      if (this.activeTab === 'fabric') {
+        this.renderResourceList();
+      }
+    } catch (err) {
+      this.debugLog(`Fabric scan failed: ${err.message}`);
+    }
+  }
+
+  async fetchFabricCosts() {
+    if (this.fabricCapacities.length === 0) return;
+
+    try {
+      const subscriptionIds = [...new Set(this.fabricCapacities.map(c => c.subscriptionId))];
+
+      for (const subscriptionId of subscriptionIds) {
+        try {
+          const url = `${this.baseUrl}/subscriptions/${subscriptionId}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`;
+          const body = JSON.stringify({
+            type: 'ActualCost',
+            timeframe: 'MonthToDate',
+            dataset: {
+              granularity: 'None',
+              aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
+              grouping: [{ type: 'Dimension', name: 'ResourceId' }]
+            }
+          });
+          const data = await this.makeApiCall(url, { method: 'POST', body });
+          if (data.properties?.rows) {
+            for (const row of data.properties.rows) {
+              const cost = row[0];
+              const resourceId = row[1];
+              const currency = row[2] || 'USD';
+              if (resourceId && cost > 0) {
+                this.fabricCosts[resourceId.toLowerCase()] = { cost, currency };
+              }
+            }
+          }
+        } catch (err) {
+          this.debugLog(`Fabric cost fetch failed for sub ${subscriptionId}: ${err.message}`);
+        }
+      }
+      this.updateBudgetDisplay();
+    } catch (err) {
+      this.debugLog(`Fabric cost fetch failed: ${err.message}`);
+    }
+  }
+
+  renderFabricList() {
+    const container = this.elements.resourceList;
+
+    // Hide other toolbars
+    if (this.elements.sqlFilterToolbar) this.elements.sqlFilterToolbar.style.display = 'none';
+    if (this.elements.selectAllToolbar) this.elements.selectAllToolbar.style.display = 'none';
+    if (this.elements.actionBar) this.elements.actionBar.style.display = 'none';
+
+    if (this.fabricCapacities.length === 0) {
+      container.innerHTML = '<div class="empty-state">No Fabric capacities found. Click refresh to scan.</div>';
+      this.updateFabricButtons();
+      return;
+    }
+
+    // Group by subscription
+    const grouped = {};
+    this.fabricCapacities.forEach((cap, idx) => {
+      const key = cap.subscriptionName || cap.subscriptionId;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push({ cap, idx });
+    });
+
+    let html = '';
+    for (const [subName, items] of Object.entries(grouped)) {
+      html += `<div class="fabric-category-header">
+        <span class="category-label">📦 ${subName}</span>
+        <span class="category-count">${items.length}</span>
+      </div>`;
+
+      for (const { cap, idx } of items) {
+        const state = cap.properties?.state || 'Unknown';
+        const statusClass = state === 'Active' ? 'running' : 'stopped';
+        const statusLabel = state === 'Active' ? 'Running' : state;
+        const sku = cap.sku?.name || 'N/A';
+        const selected = this.fabricSelectedIndices.has(idx) || this.fabricSelectedIndex === idx;
+        const selectedClass = selected ? 'selected' : '';
+        const costEntry = this.fabricCosts[cap.id?.toLowerCase()];
+        const costHtml = costEntry && costEntry.cost >= 0.01
+          ? `<span class="cost-badge" title="Month-to-date cost">$${costEntry.cost < 100 ? costEntry.cost.toFixed(2) : Math.round(costEntry.cost).toLocaleString()}</span>`
+          : '';
+
+        html += `<div class="fabric-capacity-item ${selectedClass}" data-index="${idx}">
+          <input type="checkbox" class="capacity-checkbox" data-index="${idx}" ${this.fabricSelectedIndices.has(idx) ? 'checked' : ''}>
+          <span class="fabric-capacity-name">${this.getResourceNameLink(cap.name, cap.id)}</span>
+          ${costHtml}
+          <span class="fabric-capacity-sku">${sku}</span>
+          <span class="fabric-capacity-status ${statusClass}">${statusLabel}</span>
+        </div>`;
+      }
+    }
+
+    container.innerHTML = html;
+
+    // Attach event listeners for capacity item clicks
+    container.querySelectorAll('.fabric-capacity-item').forEach(el => {
+      el.addEventListener('click', (ev) => {
+        if (ev.target.closest('a') || ev.target.closest('.capacity-checkbox')) return;
+        const idx = parseInt(el.dataset.index, 10);
+        this.onFabricCapacityClick(idx);
+      });
+    });
+
+    // Checkbox listeners
+    container.querySelectorAll('.capacity-checkbox').forEach(cb => {
+      cb.addEventListener('change', (ev) => {
+        const idx = parseInt(ev.target.dataset.index, 10);
+        if (ev.target.checked) {
+          this.fabricSelectedIndices.add(idx);
+        } else {
+          this.fabricSelectedIndices.delete(idx);
+        }
+        this.updateFabricButtons();
+      });
+    });
+
+    this.updateFabricButtons();
+  }
+
+  onFabricCapacityClick(idx) {
+    this.fabricSelectedIndex = idx;
+    this.fabricSelectedIndices.clear();
+    this.fabricSelectedIndices.add(idx);
+
+    // Update SKU dropdown
+    const cap = this.fabricCapacities[idx];
+    if (cap) {
+      this.loadFabricSkus(cap);
+    }
+
+    this.renderFabricList();
+    this.updateFabricButtons();
+  }
+
+  loadFabricSkus(capacity) {
+    const skus = ['F2', 'F4', 'F8', 'F16', 'F32', 'F64', 'F128', 'F256', 'F512', 'F1024', 'F2048'];
+    const currentSku = capacity.sku?.name || '';
+    const e = this.elements;
+
+    e.fabricSkuSelect.innerHTML = '';
+    for (const sku of skus) {
+      const opt = document.createElement('option');
+      opt.value = sku;
+      opt.textContent = sku === currentSku ? `${sku} (current)` : sku;
+      if (sku === currentSku) opt.selected = true;
+      e.fabricSkuSelect.appendChild(opt);
+    }
+    e.fabricSkuSelect.disabled = false;
+  }
+
+  updateFabricButtons() {
+    const e = this.elements;
+    const hasSelection = this.fabricSelectedIndices.size > 0 || this.fabricSelectedIndex !== null;
+    e.fabricStartBtn.disabled = !hasSelection;
+    e.fabricStopBtn.disabled = !hasSelection;
+    e.fabricUpdateSkuBtn.disabled = !hasSelection || !e.fabricSkuSelect.value;
+  }
+
+  async fabricStartCapacity() {
+    await this.performFabricOperation('resume', 'Starting');
+  }
+
+  async fabricStopCapacity() {
+    await this.performFabricOperation('suspend', 'Stopping');
+  }
+
+  async performFabricOperation(operation, operationName) {
+    let targetIndices = [...this.fabricSelectedIndices];
+    if (targetIndices.length === 0 && this.fabricSelectedIndex !== null) {
+      targetIndices = [this.fabricSelectedIndex];
+    }
+    if (targetIndices.length === 0) return;
+
+    const relevantState = operation === 'resume' ? 'Paused' : 'Active';
+    const relevant = targetIndices.filter(idx => {
+      const cap = this.fabricCapacities[idx];
+      return cap?.properties?.state === relevantState;
+    });
+
+    if (relevant.length === 0) {
+      this.log(`No capacities in ${relevantState} state to ${operation}`);
+      return;
+    }
+
+    try {
+      this.elements.fabricStartBtn.disabled = true;
+      this.elements.fabricStopBtn.disabled = true;
+      this.log(`${operationName} ${relevant.length} Fabric capacity${relevant.length > 1 ? 'ies' : ''}...`);
+
+      for (const idx of relevant) {
+        const cap = this.fabricCapacities[idx];
+        try {
+          const url = `${this.baseUrl}${cap.id}/${operation}?api-version=${this.fabricApiVersion}`;
+          await this.makeApiCall(url, { method: 'POST' });
+          this.log(`✓ ${operationName} initiated for ${cap.name}`);
+        } catch (err) {
+          this.logError(`Failed to ${operation} ${cap.name}: ${err.message}`);
+        }
+      }
+
+      // Refresh after delay
+      setTimeout(() => this.scanFabricCapacities(), 2000);
+    } finally {
+      this.updateFabricButtons();
+    }
+  }
+
+  async fabricUpdateSku() {
+    const newSku = this.elements.fabricSkuSelect.value;
+    if (!newSku) return;
+
+    let targetIndices = [...this.fabricSelectedIndices];
+    if (targetIndices.length === 0 && this.fabricSelectedIndex !== null) {
+      targetIndices = [this.fabricSelectedIndex];
+    }
+    if (targetIndices.length === 0) return;
+
+    try {
+      this.elements.fabricUpdateSkuBtn.disabled = true;
+      for (const idx of targetIndices) {
+        const cap = this.fabricCapacities[idx];
+        if (!cap) continue;
+        if (cap.sku?.name === newSku) {
+          this.log(`${cap.name} already at SKU ${newSku}, skipping.`);
+          continue;
+        }
+        try {
+          const url = `${this.baseUrl}${cap.id}?api-version=${this.fabricApiVersion}`;
+          const body = JSON.stringify({ sku: { name: newSku, tier: 'Fabric' } });
+          await this.makeApiCall(url, { method: 'PATCH', body });
+          this.log(`✓ SKU updated to ${newSku} for ${cap.name}`);
+        } catch (err) {
+          this.logError(`Failed to update SKU for ${cap.name}: ${err.message}`);
+        }
+      }
+      setTimeout(() => this.scanFabricCapacities(), 2000);
+    } finally {
+      this.updateFabricButtons();
     }
   }
 }
