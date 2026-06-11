@@ -45,6 +45,9 @@
       <button class="tab" data-tab="enabled">✓ Enabled (<span id="enabledCount">0</span>)</button>
       <button class="tab" data-tab="sqlstatus">🗃️ SQL Status (<span id="sqlDbCount">0</span>)</button>
       <button class="tab" data-tab="fabric">🏭 Fabric (<span id="fabricCount">0</span>)</button>
+      <button class="tab" data-tab="databricks">🔶 Databricks (<span id="databricksCount">0</span>)</button>
+      <button class="tab" data-tab="synapse">🔷 Synapse (<span id="synapseCount">0</span>)</button>
+      <button class="tab" data-tab="costsummary">💰 Cost</button>
       <button class="tab" data-tab="policy">🛡️ Policy (<span id="policyNonCompliantCount">0</span>)</button>
     </div>
 
@@ -75,22 +78,23 @@
         </div>
     </div>
 
+    <div class="compute-controls" id="databricksControls" style="display:none;">
+        <div class="compute-action-row">
+            <button id="databricksStartBtn" class="btn-compute-start" disabled>Start Cluster</button>
+            <button id="databricksStopBtn" class="btn-compute-stop" disabled>Stop Cluster</button>
+        </div>
+    </div>
+
+    <div class="compute-controls" id="synapseControls" style="display:none;">
+        <div class="compute-action-row">
+            <button id="synapseResumeBtn" class="btn-compute-start" disabled>Resume Pool</button>
+            <button id="synapsePauseBtn" class="btn-compute-stop" disabled>Pause Pool</button>
+        </div>
+    </div>
+
     <div class="action-bar" id="actionBar">
         <button id="enableAllBtn" class="btn-enable-all" disabled>Re-enable All</button>
         <button id="enableSelectedBtn" class="btn-enable-selected" disabled>Re-enable Selected</button>
-    </div>
-
-    <div class="budget-bar" id="budgetBar">
-        <div class="budget-summary">
-            <span class="budget-total-label">Total MTD:</span>
-            <span class="budget-total-value" id="budgetTotalValue">$0.00</span>
-            <span class="budget-separator">/</span>
-            <span class="budget-input-wrapper">
-                $<input type="number" id="budgetInput" class="budget-input" value="1500" min="0" step="100" title="Monthly budget">
-            </span>
-            <span class="budget-label">budget</span>
-        </div>
-        <div class="budget-indicator" id="budgetIndicator"></div>
     </div>
 
     <div class="modal-overlay" id="deleteModal" style="display:none">

@@ -16,10 +16,11 @@
   "host_permissions": [
     "https://management.azure.com/*",
     "https://login.microsoftonline.com/*",
-    "https://graph.microsoft.com/*"
+    "https://graph.microsoft.com/*",
+    "https://*.azuredatabricks.net/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://management.azure.com https://login.microsoftonline.com https://graph.microsoft.com;"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://management.azure.com https://login.microsoftonline.com https://graph.microsoft.com https://*.azuredatabricks.net;"
   },
   "action": {
     "default_popup": "popup.html",

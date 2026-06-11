@@ -272,7 +272,20 @@ class AzureResourceEnabler {
     this.fabricAvailableSkus = [];
     this.fabricCosts = {}; // { resourceId.toLowerCase(): { cost, currency } }
 
-    // Budget state
+    // Databricks state
+    this.databricksWorkspaces = [];
+    this.databricksClusters = []; // { cluster, workspace, subscriptionId, subscriptionName }
+    this.databricksSelectedIndices = new Set();
+    this.databricksCosts = {}; // { resourceId.toLowerCase(): { cost, currency } }
+
+    // Synapse state
+    this.synapseWorkspaces = [];
+    this.synapsePools = []; // { pool, workspace, subscriptionId, subscriptionName }
+    this.synapseSelectedIndices = new Set();
+    this.synapseCosts = {}; // { resourceId.toLowerCase(): { cost, currency } }
+
+    // Cost Summary state
+    this.costSummaryData = []; // [{ resourceGroup, serviceName, resourceName, resourceId, cost, currency }]
     this.budget = 1500;
 
     // Config
@@ -360,11 +373,16 @@ class AzureResourceEnabler {
       fabricUpdateSkuBtn: document.getElementById('fabricUpdateSkuBtn'),
       fabricStartBtn: document.getElementById('fabricStartBtn'),
       fabricStopBtn: document.getElementById('fabricStopBtn'),
-      // Budget elements
-      budgetBar: document.getElementById('budgetBar'),
-      budgetTotalValue: document.getElementById('budgetTotalValue'),
-      budgetInput: document.getElementById('budgetInput'),
-      budgetIndicator: document.getElementById('budgetIndicator'),
+      // Databricks elements
+      databricksCount: document.getElementById('databricksCount'),
+      databricksControls: document.getElementById('databricksControls'),
+      databricksStartBtn: document.getElementById('databricksStartBtn'),
+      databricksStopBtn: document.getElementById('databricksStopBtn'),
+      // Synapse elements
+      synapseCount: document.getElementById('synapseCount'),
+      synapseControls: document.getElementById('synapseControls'),
+      synapseResumeBtn: document.getElementById('synapseResumeBtn'),
+      synapsePauseBtn: document.getElementById('synapsePauseBtn'),
     };
   }
 
@@ -493,12 +511,13 @@ class AzureResourceEnabler {
       e.fabricUpdateSkuBtn.disabled = !hasSelection || !e.fabricSkuSelect.value;
     });
 
-    // Budget input event listener
-    e.budgetInput.addEventListener('change', () => {
-      this.budget = parseFloat(e.budgetInput.value) || 0;
-      chrome.storage.local.set({ budget: this.budget });
-      this.updateBudgetDisplay();
-    });
+    // Databricks event listeners
+    e.databricksStartBtn.addEventListener('click', () => this.databricksStartCluster());
+    e.databricksStopBtn.addEventListener('click', () => this.databricksStopCluster());
+
+    // Synapse event listeners
+    e.synapseResumeBtn.addEventListener('click', () => this.synapseResumePool());
+    e.synapsePauseBtn.addEventListener('click', () => this.synapsePausePool());
   }
 
   // ─── Settings ──────────────────────────────────────────────────────────────
@@ -518,7 +537,6 @@ class AzureResourceEnabler {
     if (data.budget !== undefined && data.budget !== null) {
       this.budget = parseFloat(data.budget) || 1500;
     }
-    this.elements.budgetInput.value = this.budget;
     this.elements.clientIdInput.value = this.clientId !== this.defaultClientId ? this.clientId : '';
   }
 
@@ -850,8 +868,8 @@ class AzureResourceEnabler {
         this.log(`Found ${disCount} disabled resource(s), ${enCount} enabled.`);
       }
 
-      // Fetch resource costs (non-blocking failure)
-      await this.fetchResourceCosts();
+      // Fetch cost summary (single query for all services)
+      await this.fetchCostSummary();
 
       // Also scan SQL database status
       await this.scanSqlDatabases();
@@ -861,6 +879,12 @@ class AzureResourceEnabler {
 
       // Scan Fabric capacities
       await this.scanFabricCapacities();
+
+      // Scan Databricks clusters
+      await this.scanDatabricksClusters();
+
+      // Scan Synapse pools
+      await this.scanSynapsePools();
     } catch (err) {
       this.logError(`Scan failed: ${err.message}`);
     } finally {
@@ -981,7 +1005,6 @@ class AzureResourceEnabler {
       // Fetch previous month for trend comparison
       await this.fetchPreviousMonthCosts(subscriptionId);
 
-      this.updateBudgetDisplay();
       this.renderResourceList();
     } catch (err) {
       this.debugLog(`Cost fetch failed (non-critical): ${err.message}`);
@@ -1539,6 +1562,14 @@ class AzureResourceEnabler {
     if (this.elements.fabricControls) {
       this.elements.fabricControls.style.display = this.activeTab === 'fabric' ? '' : 'none';
     }
+    // Show/hide Databricks controls
+    if (this.elements.databricksControls) {
+      this.elements.databricksControls.style.display = this.activeTab === 'databricks' ? '' : 'none';
+    }
+    // Show/hide Synapse controls
+    if (this.elements.synapseControls) {
+      this.elements.synapseControls.style.display = this.activeTab === 'synapse' ? '' : 'none';
+    }
   }
 
   renderResourceList() {
@@ -1552,6 +1583,18 @@ class AzureResourceEnabler {
     }
     if (this.activeTab === 'fabric') {
       this.renderFabricList();
+      return;
+    }
+    if (this.activeTab === 'databricks') {
+      this.renderDatabricksList();
+      return;
+    }
+    if (this.activeTab === 'synapse') {
+      this.renderSynapseList();
+      return;
+    }
+    if (this.activeTab === 'costsummary') {
+      this.renderCostSummaryList();
       return;
     }
     if (this.activeTab === 'disabled') {
@@ -1770,7 +1813,7 @@ class AzureResourceEnabler {
         html += `<div class="resource-item">
           <input type="checkbox" class="checkbox" data-index="${item.index}" data-handler-key="${key}" ${checked} ${item.working ? 'disabled' : ''}>
           <div class="resource-info">
-            <div class="resource-name" title="${item.resource.name}">${this.getResourceNameLink(item.resource.name, item.resource.id)}${this.getResourceCostHtml(item.resource.id)}</div>
+            <div class="resource-name" title="${item.resource.name}">${this.getResourceNameLink(item.resource.name, item.resource.id)}</div>
             <div class="resource-detail">${rg} • ${item.resource.location || 'N/A'}</div>
             <div class="resource-issue">${issuesHtml}</div>
           </div>
@@ -1968,7 +2011,7 @@ class AzureResourceEnabler {
 
         html += `<div class="resource-item resource-item--enabled">
           <div class="resource-info">
-            <div class="resource-name" title="${item.resource.name}">${item.handler.icon} ${this.getResourceNameLink(item.resource.name, item.resource.id)}${this.getResourceCostHtml(item.resource.id)}</div>
+            <div class="resource-name" title="${item.resource.name}">${item.handler.icon} ${this.getResourceNameLink(item.resource.name, item.resource.id)}</div>
             <div class="resource-detail">${rg} • ${item.resource.location || 'N/A'}</div>
             <div class="resource-badges">${badgesHtml}</div>
           </div>
@@ -2175,39 +2218,166 @@ class AzureResourceEnabler {
     return `<a href="${portalUrl}" target="_blank" title="Open in Azure Portal">${name}</a>`;
   }
 
-  // ─── Budget Tracking ────────────────────────────────────────────────────────
+  // ─── Cost Summary ──────────────────────────────────────────────────────────
 
   getTotalCost() {
     let total = 0;
-    for (const entry of Object.values(this.resourceCosts || {})) {
-      total += entry.cost || 0;
-    }
-    // Also include Fabric costs
-    for (const entry of Object.values(this.fabricCosts || {})) {
+    for (const entry of this.costSummaryData) {
       total += entry.cost || 0;
     }
     return total;
   }
 
-  updateBudgetDisplay() {
+  async fetchCostSummary() {
+    if (!this.selectedSubscription) return;
+
+    try {
+      this.debugLog('Fetching cost summary...');
+      const subscriptionId = this.selectedSubscription.subscriptionId;
+      const url = `${this.baseUrl}/subscriptions/${subscriptionId}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`;
+
+      const body = JSON.stringify({
+        type: 'ActualCost',
+        timeframe: 'MonthToDate',
+        dataset: {
+          granularity: 'None',
+          aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
+          grouping: [
+            { type: 'Dimension', name: 'ResourceGroupName' },
+            { type: 'Dimension', name: 'ServiceName' },
+            { type: 'Dimension', name: 'ResourceId' }
+          ]
+        }
+      });
+
+      const data = await this.makeApiCall(url, { method: 'POST', body });
+
+      this.costSummaryData = [];
+      if (data.properties?.rows) {
+        for (const row of data.properties.rows) {
+          const cost = row[0];
+          const resourceGroup = row[1] || 'Unknown';
+          const serviceName = row[2] || 'Unknown';
+          const resourceId = row[3] || '';
+          const currency = row[4] || 'USD';
+          if (cost > 0) {
+            // Extract resource name from resourceId (last segment)
+            const segments = resourceId.split('/');
+            const resourceName = segments[segments.length - 1] || resourceId;
+            this.costSummaryData.push({ resourceGroup, serviceName, resourceName, resourceId, cost, currency });
+          }
+        }
+      }
+
+      // Sort by cost descending
+      this.costSummaryData.sort((a, b) => b.cost - a.cost);
+
+      this.debugLog(`Cost summary: ${this.costSummaryData.length} items, total $${this.getTotalCost().toFixed(2)}`);
+
+      if (this.activeTab === 'costsummary') {
+        this.renderResourceList();
+      }
+    } catch (err) {
+      this.debugLog(`Cost summary fetch failed (non-critical): ${err.message}`);
+    }
+  }
+
+  renderCostSummaryList() {
+    const container = this.elements.resourceList;
+
+    // Hide other toolbars
+    if (this.elements.sqlFilterToolbar) this.elements.sqlFilterToolbar.style.display = 'none';
+    if (this.elements.selectAllToolbar) this.elements.selectAllToolbar.style.display = 'none';
+    if (this.elements.actionBar) this.elements.actionBar.style.display = 'none';
+
     const total = this.getTotalCost();
-    const e = this.elements;
-    if (!e.budgetBar) return;
+    const totalFormatted = total < 100 ? `$${total.toFixed(2)}` : `$${Math.round(total).toLocaleString()}`;
 
-    // Update total value display
-    const formatted = total < 100
-      ? `$${total.toFixed(2)}`
-      : `$${Math.round(total).toLocaleString()}`;
-    e.budgetTotalValue.textContent = formatted;
-
-    // Determine color: green if under by >$100, yellow if within $100, red if over
-    e.budgetBar.classList.remove('budget-green', 'budget-yellow', 'budget-red');
+    // Budget indicator color
+    let indicatorClass = 'green';
     if (total > this.budget) {
-      e.budgetBar.classList.add('budget-red');
+      indicatorClass = 'red';
     } else if (total >= this.budget - 100) {
-      e.budgetBar.classList.add('budget-yellow');
-    } else {
-      e.budgetBar.classList.add('budget-green');
+      indicatorClass = 'yellow';
+    }
+
+    // Budget header
+    let html = `<div class="cost-summary-header">
+      <span class="cost-summary-total">MTD: ${totalFormatted}</span>
+      <span class="cost-summary-budget">
+        / $<input type="number" id="costBudgetInput" value="${this.budget}" min="0" step="100" title="Monthly budget"> budget
+        <span class="cost-summary-indicator ${indicatorClass}"></span>
+      </span>
+    </div>`;
+
+    if (this.costSummaryData.length === 0) {
+      html += '<div class="empty-state">No cost data available. Click refresh to scan.</div>';
+      container.innerHTML = html;
+      this.attachBudgetInputListener();
+      return;
+    }
+
+    // Group by resource group
+    const grouped = {};
+    for (const item of this.costSummaryData) {
+      if (!grouped[item.resourceGroup]) grouped[item.resourceGroup] = [];
+      grouped[item.resourceGroup].push(item);
+    }
+
+    // Sort RGs by total cost descending
+    const sortedRGs = Object.entries(grouped).sort((a, b) => {
+      const totalA = a[1].reduce((sum, i) => sum + i.cost, 0);
+      const totalB = b[1].reduce((sum, i) => sum + i.cost, 0);
+      return totalB - totalA;
+    });
+
+    for (const [rgName, items] of sortedRGs) {
+      const rgTotal = items.reduce((sum, i) => sum + i.cost, 0);
+      const rgTotalFormatted = rgTotal < 100 ? `$${rgTotal.toFixed(2)}` : `$${Math.round(rgTotal).toLocaleString()}`;
+
+      html += `<div class="cost-rg-header">
+        <span class="rg-label">📦 ${rgName}</span>
+        <span class="rg-total">${rgTotalFormatted}</span>
+      </div>`;
+
+      // Sort items within RG by cost descending
+      items.sort((a, b) => b.cost - a.cost);
+
+      for (const item of items) {
+        const costFormatted = item.cost < 1 ? `$${item.cost.toFixed(2)}` : item.cost < 100 ? `$${item.cost.toFixed(2)}` : `$${Math.round(item.cost).toLocaleString()}`;
+        const portalUrl = item.resourceId
+          ? `https://portal.azure.com/#@${encodeURIComponent(this.tenantId)}/resource${item.resourceId}`
+          : '';
+        const nameHtml = portalUrl
+          ? `<a href="${portalUrl}" target="_blank" title="Open in Azure Portal">${item.resourceName}</a>`
+          : item.resourceName;
+
+        html += `<div class="cost-row">
+          <span class="cost-row-service">${item.serviceName}</span>
+          <span class="cost-row-name">${nameHtml}</span>
+          <span class="cost-row-amount">${costFormatted}</span>
+        </div>`;
+      }
+    }
+
+    // Total row
+    html += `<div class="cost-total-row">
+      <span class="cost-total-label">TOTAL</span>
+      <span class="cost-total-amount">${totalFormatted}</span>
+    </div>`;
+
+    container.innerHTML = html;
+    this.attachBudgetInputListener();
+  }
+
+  attachBudgetInputListener() {
+    const input = document.getElementById('costBudgetInput');
+    if (input) {
+      input.addEventListener('change', () => {
+        this.budget = parseFloat(input.value) || 0;
+        chrome.storage.local.set({ budget: this.budget });
+        this.renderCostSummaryList();
+      });
     }
   }
 
@@ -2243,9 +2413,6 @@ class AzureResourceEnabler {
       if (this.elements.fabricCount) {
         this.elements.fabricCount.textContent = this.fabricCapacities.length;
       }
-
-      // Fetch costs for Fabric capacities
-      await this.fetchFabricCosts();
 
       if (this.activeTab === 'fabric') {
         this.renderResourceList();
@@ -2288,7 +2455,6 @@ class AzureResourceEnabler {
           this.debugLog(`Fabric cost fetch failed for sub ${subscriptionId}: ${err.message}`);
         }
       }
-      this.updateBudgetDisplay();
     } catch (err) {
       this.debugLog(`Fabric cost fetch failed: ${err.message}`);
     }
@@ -2330,15 +2496,10 @@ class AzureResourceEnabler {
         const sku = cap.sku?.name || 'N/A';
         const selected = this.fabricSelectedIndices.has(idx) || this.fabricSelectedIndex === idx;
         const selectedClass = selected ? 'selected' : '';
-        const costEntry = this.fabricCosts[cap.id?.toLowerCase()];
-        const costHtml = costEntry && costEntry.cost >= 0.01
-          ? `<span class="cost-badge" title="Month-to-date cost">$${costEntry.cost < 100 ? costEntry.cost.toFixed(2) : Math.round(costEntry.cost).toLocaleString()}</span>`
-          : '';
 
         html += `<div class="fabric-capacity-item ${selectedClass}" data-index="${idx}">
           <input type="checkbox" class="capacity-checkbox" data-index="${idx}" ${this.fabricSelectedIndices.has(idx) ? 'checked' : ''}>
           <span class="fabric-capacity-name">${this.getResourceNameLink(cap.name, cap.id)}</span>
-          ${costHtml}
           <span class="fabric-capacity-sku">${sku}</span>
           <span class="fabric-capacity-status ${statusClass}">${statusLabel}</span>
         </div>`;
@@ -2491,6 +2652,579 @@ class AzureResourceEnabler {
       setTimeout(() => this.scanFabricCapacities(), 2000);
     } finally {
       this.updateFabricButtons();
+    }
+  }
+
+  // ─── Databricks Cluster Management ──────────────────────────────────────────
+
+  async scanDatabricksClusters() {
+    if (!this.subscriptions || this.subscriptions.length === 0) return;
+
+    try {
+      this.debugLog('Scanning Databricks workspaces and clusters...');
+      this.databricksWorkspaces = [];
+      this.databricksClusters = [];
+
+      for (const sub of this.subscriptions) {
+        try {
+          const url = `${this.baseUrl}/subscriptions/${sub.subscriptionId}/providers/Microsoft.Databricks/workspaces?api-version=2024-05-01`;
+          const data = await this.makeApiCall(url, { method: 'GET' });
+          const workspaces = data.value || [];
+          for (const ws of workspaces) {
+            ws._subscriptionId = sub.subscriptionId;
+            ws._subscriptionName = sub.displayName;
+            this.databricksWorkspaces.push(ws);
+
+            // Fetch clusters for this workspace
+            const workspaceUrl = ws.properties?.workspaceUrl;
+            if (workspaceUrl) {
+              try {
+                const clustersUrl = `https://${workspaceUrl}/api/2.0/clusters/list`;
+                const clusterData = await this.makeDatabricksApiCall(clustersUrl, { method: 'GET' });
+                const clusters = clusterData.clusters || [];
+                for (const cluster of clusters) {
+                  this.databricksClusters.push({
+                    cluster,
+                    workspace: ws,
+                    subscriptionId: sub.subscriptionId,
+                    subscriptionName: sub.displayName
+                  });
+                }
+              } catch (clusterErr) {
+                this.debugLog(`Failed to list clusters for workspace ${ws.name}: ${clusterErr.message}`);
+              }
+            }
+          }
+        } catch (err) {
+          if (!err.message.includes('404') && !err.message.includes('ResourceProviderNotRegistered')) {
+            this.debugLog(`Databricks scan error for ${sub.displayName}: ${err.message}`);
+          }
+        }
+      }
+
+      this.debugLog(`Found ${this.databricksClusters.length} Databricks clusters across ${this.databricksWorkspaces.length} workspaces.`);
+      if (this.elements.databricksCount) {
+        this.elements.databricksCount.textContent = this.databricksWorkspaces.length;
+      }
+
+      if (this.activeTab === 'databricks') {
+        this.renderResourceList();
+      }
+    } catch (err) {
+      this.debugLog(`Databricks scan failed: ${err.message}`);
+    }
+  }
+
+  async makeDatabricksApiCall(url, options = {}) {
+    // Use the same access token (AAD token for Databricks resource)
+    const token = this.accessToken;
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    };
+    const resp = await fetch(url, { ...options, headers });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`Databricks API ${resp.status}: ${text.substring(0, 200)}`);
+    }
+    const text = await resp.text();
+    return text ? JSON.parse(text) : {};
+  }
+
+  async fetchDatabricksCosts() {
+    if (this.databricksWorkspaces.length === 0) return;
+
+    try {
+      const subscriptionIds = [...new Set(this.databricksWorkspaces.map(ws => ws._subscriptionId))];
+
+      for (const subscriptionId of subscriptionIds) {
+        try {
+          const url = `${this.baseUrl}/subscriptions/${subscriptionId}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`;
+          const body = JSON.stringify({
+            type: 'ActualCost',
+            timeframe: 'MonthToDate',
+            dataset: {
+              granularity: 'None',
+              aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
+              grouping: [{ type: 'Dimension', name: 'ResourceId' }],
+              filter: {
+                dimensions: {
+                  name: 'ResourceType',
+                  operator: 'In',
+                  values: ['Microsoft.Databricks/workspaces']
+                }
+              }
+            }
+          });
+          const data = await this.makeApiCall(url, { method: 'POST', body });
+          if (data.properties?.rows) {
+            for (const row of data.properties.rows) {
+              const cost = row[0];
+              const resourceId = row[1];
+              const currency = row[2] || 'USD';
+              if (resourceId && cost > 0) {
+                this.databricksCosts[resourceId.toLowerCase()] = { cost, currency };
+              }
+            }
+          }
+        } catch (err) {
+          this.debugLog(`Databricks cost fetch failed for sub ${subscriptionId}: ${err.message}`);
+        }
+      }
+    } catch (err) {
+      this.debugLog(`Databricks cost fetch failed: ${err.message}`);
+    }
+  }
+
+  renderDatabricksList() {
+    const container = this.elements.resourceList;
+
+    // Hide other toolbars
+    if (this.elements.sqlFilterToolbar) this.elements.sqlFilterToolbar.style.display = 'none';
+    if (this.elements.selectAllToolbar) this.elements.selectAllToolbar.style.display = 'none';
+    if (this.elements.actionBar) this.elements.actionBar.style.display = 'none';
+
+    if (this.databricksWorkspaces.length === 0 && this.databricksClusters.length === 0) {
+      container.innerHTML = '<div class="empty-state">No Databricks workspaces found. Click refresh to scan.</div>';
+      this.updateDatabricksButtons();
+      return;
+    }
+
+    // Group clusters by workspace, and include workspaces with no clusters
+    const grouped = {};
+    // First, seed all workspaces
+    for (const ws of this.databricksWorkspaces) {
+      const key = `${ws.name} (${ws._subscriptionName})`;
+      if (!grouped[key]) grouped[key] = { items: [], workspace: ws };
+    }
+    // Then add clusters
+    this.databricksClusters.forEach((entry, idx) => {
+      const key = `${entry.workspace.name} (${entry.subscriptionName})`;
+      if (!grouped[key]) grouped[key] = { items: [], workspace: entry.workspace };
+      grouped[key].items.push({ entry, idx });
+    });
+
+    let html = '';
+    for (const [label, { items, workspace }] of Object.entries(grouped)) {
+      const workspaceUrl = workspace.properties?.workspaceUrl
+        ? `https://${workspace.properties.workspaceUrl}`
+        : null;
+      const portalUrl = `https://portal.azure.com/#@${encodeURIComponent(this.tenantId)}/resource${workspace.id}`;
+      const headerLink = workspaceUrl
+        ? `<a href="${workspaceUrl}" target="_blank" title="Open Databricks workspace">🔗</a> <a href="${portalUrl}" target="_blank" title="Open in Azure Portal">🌐</a>`
+        : `<a href="${portalUrl}" target="_blank" title="Open in Azure Portal">🌐</a>`;
+
+      html += `<div class="compute-category-header">
+        <span class="category-label">🔶 ${label} ${headerLink}</span>
+        <span class="category-count">${items.length} cluster${items.length !== 1 ? 's' : ''}</span>
+      </div>`;
+
+      for (const { entry, idx } of items) {
+        const cluster = entry.cluster;
+        const state = cluster.state || 'UNKNOWN';
+        const statusClass = state === 'RUNNING' ? 'running' : (state === 'PENDING' || state === 'RESTARTING' || state === 'RESIZING') ? 'pending' : 'stopped';
+        const statusLabel = state.charAt(0) + state.slice(1).toLowerCase();
+        const nodeType = cluster.node_type_id || '';
+        const selected = this.databricksSelectedIndices.has(idx) ? 'selected' : '';
+
+        html += `<div class="compute-item ${selected}" data-index="${idx}">
+          <input type="checkbox" class="capacity-checkbox" data-index="${idx}" ${this.databricksSelectedIndices.has(idx) ? 'checked' : ''}>
+          <span class="compute-item-name" title="${cluster.cluster_name}">${cluster.cluster_name}</span>
+          <span class="compute-item-detail">${nodeType}</span>
+          <span class="compute-item-status ${statusClass}">${statusLabel}</span>
+        </div>`;
+      }
+
+      if (items.length === 0) {
+        html += `<div class="compute-item"><span class="compute-item-name" style="color:var(--color-neutral-light);font-style:italic;">No clusters provisioned</span></div>`;
+      }
+    }
+
+    container.innerHTML = html;
+
+    // Event listeners
+    container.querySelectorAll('.compute-item').forEach(el => {
+      el.addEventListener('click', (ev) => {
+        if (ev.target.closest('a') || ev.target.closest('.capacity-checkbox')) return;
+        const idx = parseInt(el.dataset.index, 10);
+        this.databricksSelectedIndices.clear();
+        this.databricksSelectedIndices.add(idx);
+        this.renderDatabricksList();
+      });
+    });
+
+    container.querySelectorAll('.capacity-checkbox').forEach(cb => {
+      cb.addEventListener('change', (ev) => {
+        const idx = parseInt(ev.target.dataset.index, 10);
+        if (ev.target.checked) {
+          this.databricksSelectedIndices.add(idx);
+        } else {
+          this.databricksSelectedIndices.delete(idx);
+        }
+        this.updateDatabricksButtons();
+      });
+    });
+
+    this.updateDatabricksButtons();
+  }
+
+  updateDatabricksButtons() {
+    const e = this.elements;
+    const hasSelection = this.databricksSelectedIndices.size > 0;
+    e.databricksStartBtn.disabled = !hasSelection;
+    e.databricksStopBtn.disabled = !hasSelection;
+  }
+
+  async databricksStartCluster() {
+    const targetIndices = [...this.databricksSelectedIndices];
+    if (targetIndices.length === 0) return;
+
+    const relevant = targetIndices.filter(idx => {
+      const entry = this.databricksClusters[idx];
+      return entry?.cluster?.state === 'TERMINATED';
+    });
+
+    if (relevant.length === 0) {
+      this.log('No terminated clusters to start.');
+      return;
+    }
+
+    try {
+      this.elements.databricksStartBtn.disabled = true;
+      this.elements.databricksStopBtn.disabled = true;
+      this.log(`Starting ${relevant.length} Databricks cluster${relevant.length > 1 ? 's' : ''}...`);
+
+      for (const idx of relevant) {
+        const entry = this.databricksClusters[idx];
+        const workspaceUrl = entry.workspace.properties?.workspaceUrl;
+        try {
+          const url = `https://${workspaceUrl}/api/2.0/clusters/start`;
+          await this.makeDatabricksApiCall(url, {
+            method: 'POST',
+            body: JSON.stringify({ cluster_id: entry.cluster.cluster_id })
+          });
+          this.log(`✓ Start initiated for ${entry.cluster.cluster_name}`);
+        } catch (err) {
+          this.logError(`Failed to start ${entry.cluster.cluster_name}: ${err.message}`);
+        }
+      }
+
+      setTimeout(() => this.scanDatabricksClusters(), 3000);
+    } finally {
+      this.updateDatabricksButtons();
+    }
+  }
+
+  async databricksStopCluster() {
+    const targetIndices = [...this.databricksSelectedIndices];
+    if (targetIndices.length === 0) return;
+
+    const relevant = targetIndices.filter(idx => {
+      const entry = this.databricksClusters[idx];
+      return entry?.cluster?.state === 'RUNNING' || entry?.cluster?.state === 'PENDING';
+    });
+
+    if (relevant.length === 0) {
+      this.log('No running clusters to stop.');
+      return;
+    }
+
+    try {
+      this.elements.databricksStartBtn.disabled = true;
+      this.elements.databricksStopBtn.disabled = true;
+      this.log(`Stopping ${relevant.length} Databricks cluster${relevant.length > 1 ? 's' : ''}...`);
+
+      for (const idx of relevant) {
+        const entry = this.databricksClusters[idx];
+        const workspaceUrl = entry.workspace.properties?.workspaceUrl;
+        try {
+          const url = `https://${workspaceUrl}/api/2.0/clusters/delete`;
+          await this.makeDatabricksApiCall(url, {
+            method: 'POST',
+            body: JSON.stringify({ cluster_id: entry.cluster.cluster_id })
+          });
+          this.log(`✓ Stop initiated for ${entry.cluster.cluster_name}`);
+        } catch (err) {
+          this.logError(`Failed to stop ${entry.cluster.cluster_name}: ${err.message}`);
+        }
+      }
+
+      setTimeout(() => this.scanDatabricksClusters(), 3000);
+    } finally {
+      this.updateDatabricksButtons();
+    }
+  }
+
+  // ─── Synapse Pool Management ────────────────────────────────────────────────
+
+  async scanSynapsePools() {
+    if (!this.subscriptions || this.subscriptions.length === 0) return;
+
+    try {
+      this.debugLog('Scanning Synapse workspaces and dedicated pools...');
+      this.synapseWorkspaces = [];
+      this.synapsePools = [];
+
+      for (const sub of this.subscriptions) {
+        try {
+          const url = `${this.baseUrl}/subscriptions/${sub.subscriptionId}/providers/Microsoft.Synapse/workspaces?api-version=2021-06-01`;
+          const data = await this.makeApiCall(url, { method: 'GET' });
+          const workspaces = data.value || [];
+          for (const ws of workspaces) {
+            ws._subscriptionId = sub.subscriptionId;
+            ws._subscriptionName = sub.displayName;
+            this.synapseWorkspaces.push(ws);
+
+            // Fetch dedicated SQL pools for this workspace
+            try {
+              const poolsUrl = `${this.baseUrl}${ws.id}/sqlPools?api-version=2021-06-01`;
+              const poolData = await this.makeApiCall(poolsUrl, { method: 'GET' });
+              const pools = poolData.value || [];
+              for (const pool of pools) {
+                this.synapsePools.push({
+                  pool,
+                  workspace: ws,
+                  subscriptionId: sub.subscriptionId,
+                  subscriptionName: sub.displayName
+                });
+              }
+            } catch (poolErr) {
+              this.debugLog(`Failed to list pools for workspace ${ws.name}: ${poolErr.message}`);
+            }
+          }
+        } catch (err) {
+          if (!err.message.includes('404') && !err.message.includes('ResourceProviderNotRegistered')) {
+            this.debugLog(`Synapse scan error for ${sub.displayName}: ${err.message}`);
+          }
+        }
+      }
+
+      this.debugLog(`Found ${this.synapsePools.length} Synapse dedicated pools across ${this.synapseWorkspaces.length} workspaces.`);
+      if (this.elements.synapseCount) {
+        this.elements.synapseCount.textContent = this.synapseWorkspaces.length;
+      }
+
+      if (this.activeTab === 'synapse') {
+        this.renderResourceList();
+      }
+    } catch (err) {
+      this.debugLog(`Synapse scan failed: ${err.message}`);
+    }
+  }
+
+  async fetchSynapseCosts() {
+    if (this.synapseWorkspaces.length === 0) return;
+
+    try {
+      const subscriptionIds = [...new Set(this.synapseWorkspaces.map(ws => ws._subscriptionId))];
+
+      for (const subscriptionId of subscriptionIds) {
+        try {
+          const url = `${this.baseUrl}/subscriptions/${subscriptionId}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`;
+          const body = JSON.stringify({
+            type: 'ActualCost',
+            timeframe: 'MonthToDate',
+            dataset: {
+              granularity: 'None',
+              aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
+              grouping: [{ type: 'Dimension', name: 'ResourceId' }],
+              filter: {
+                dimensions: {
+                  name: 'ResourceType',
+                  operator: 'In',
+                  values: ['Microsoft.Synapse/workspaces', 'Microsoft.Synapse/workspaces/sqlPools']
+                }
+              }
+            }
+          });
+          const data = await this.makeApiCall(url, { method: 'POST', body });
+          if (data.properties?.rows) {
+            for (const row of data.properties.rows) {
+              const cost = row[0];
+              const resourceId = row[1];
+              const currency = row[2] || 'USD';
+              if (resourceId && cost > 0) {
+                this.synapseCosts[resourceId.toLowerCase()] = { cost, currency };
+              }
+            }
+          }
+        } catch (err) {
+          this.debugLog(`Synapse cost fetch failed for sub ${subscriptionId}: ${err.message}`);
+        }
+      }
+    } catch (err) {
+      this.debugLog(`Synapse cost fetch failed: ${err.message}`);
+    }
+  }
+
+  renderSynapseList() {
+    const container = this.elements.resourceList;
+
+    // Hide other toolbars
+    if (this.elements.sqlFilterToolbar) this.elements.sqlFilterToolbar.style.display = 'none';
+    if (this.elements.selectAllToolbar) this.elements.selectAllToolbar.style.display = 'none';
+    if (this.elements.actionBar) this.elements.actionBar.style.display = 'none';
+
+    if (this.synapseWorkspaces.length === 0 && this.synapsePools.length === 0) {
+      container.innerHTML = '<div class="empty-state">No Synapse workspaces found. Click refresh to scan.</div>';
+      this.updateSynapseButtons();
+      return;
+    }
+
+    // Group pools by workspace, and include workspaces with no pools
+    const grouped = {};
+    // First, seed all workspaces
+    for (const ws of this.synapseWorkspaces) {
+      const key = `${ws.name} (${ws._subscriptionName})`;
+      if (!grouped[key]) grouped[key] = { items: [], workspace: ws };
+    }
+    // Then add pools
+    this.synapsePools.forEach((entry, idx) => {
+      const key = `${entry.workspace.name} (${entry.subscriptionName})`;
+      if (!grouped[key]) grouped[key] = { items: [], workspace: entry.workspace };
+      grouped[key].items.push({ entry, idx });
+    });
+
+    let html = '';
+    for (const [label, { items, workspace }] of Object.entries(grouped)) {
+      const portalUrl = `https://portal.azure.com/#@${encodeURIComponent(this.tenantId)}/resource${workspace.id}`;
+      const synapseStudioUrl = workspace.properties?.connectivityEndpoints?.web || null;
+      const headerLink = synapseStudioUrl
+        ? `<a href="${synapseStudioUrl}" target="_blank" title="Open Synapse Studio">🔗</a> <a href="${portalUrl}" target="_blank" title="Open in Azure Portal">🌐</a>`
+        : `<a href="${portalUrl}" target="_blank" title="Open in Azure Portal">🌐</a>`;
+
+      html += `<div class="compute-category-header">
+        <span class="category-label">🔷 ${label} ${headerLink}</span>
+        <span class="category-count">${items.length} pool${items.length !== 1 ? 's' : ''}</span>
+      </div>`;
+
+      for (const { entry, idx } of items) {
+        const pool = entry.pool;
+        const state = pool.properties?.status || 'Unknown';
+        const statusClass = state === 'Online' ? 'running' : (state === 'Pausing' || state === 'Resuming') ? 'pending' : 'stopped';
+        const statusLabel = state;
+        const sku = pool.sku?.name || '';
+        const selected = this.synapseSelectedIndices.has(idx) ? 'selected' : '';
+
+        const poolPortalUrl = `https://portal.azure.com/#@${encodeURIComponent(this.tenantId)}/resource${pool.id}`;
+
+        html += `<div class="compute-item ${selected}" data-index="${idx}">
+          <input type="checkbox" class="capacity-checkbox" data-index="${idx}" ${this.synapseSelectedIndices.has(idx) ? 'checked' : ''}>
+          <span class="compute-item-name"><a href="${poolPortalUrl}" target="_blank" title="Open in Azure Portal">${pool.name}</a></span>
+          <span class="compute-item-detail">${sku}</span>
+          <span class="compute-item-status ${statusClass}">${statusLabel}</span>
+        </div>`;
+      }
+
+      if (items.length === 0) {
+        html += `<div class="compute-item"><span class="compute-item-name" style="color:var(--color-neutral-light);font-style:italic;">No dedicated pools provisioned</span></div>`;
+      }
+    }
+
+    container.innerHTML = html;
+
+    // Event listeners
+    container.querySelectorAll('.compute-item').forEach(el => {
+      el.addEventListener('click', (ev) => {
+        if (ev.target.closest('a') || ev.target.closest('.capacity-checkbox')) return;
+        const idx = parseInt(el.dataset.index, 10);
+        this.synapseSelectedIndices.clear();
+        this.synapseSelectedIndices.add(idx);
+        this.renderSynapseList();
+      });
+    });
+
+    container.querySelectorAll('.capacity-checkbox').forEach(cb => {
+      cb.addEventListener('change', (ev) => {
+        const idx = parseInt(ev.target.dataset.index, 10);
+        if (ev.target.checked) {
+          this.synapseSelectedIndices.add(idx);
+        } else {
+          this.synapseSelectedIndices.delete(idx);
+        }
+        this.updateSynapseButtons();
+      });
+    });
+
+    this.updateSynapseButtons();
+  }
+
+  updateSynapseButtons() {
+    const e = this.elements;
+    const hasSelection = this.synapseSelectedIndices.size > 0;
+    e.synapseResumeBtn.disabled = !hasSelection;
+    e.synapsePauseBtn.disabled = !hasSelection;
+  }
+
+  async synapseResumePool() {
+    const targetIndices = [...this.synapseSelectedIndices];
+    if (targetIndices.length === 0) return;
+
+    const relevant = targetIndices.filter(idx => {
+      const entry = this.synapsePools[idx];
+      return entry?.pool?.properties?.status === 'Paused';
+    });
+
+    if (relevant.length === 0) {
+      this.log('No paused pools to resume.');
+      return;
+    }
+
+    try {
+      this.elements.synapseResumeBtn.disabled = true;
+      this.elements.synapsePauseBtn.disabled = true;
+      this.log(`Resuming ${relevant.length} Synapse pool${relevant.length > 1 ? 's' : ''}...`);
+
+      for (const idx of relevant) {
+        const entry = this.synapsePools[idx];
+        try {
+          const url = `${this.baseUrl}${entry.pool.id}/resume?api-version=2021-06-01`;
+          await this.makeApiCall(url, { method: 'POST' });
+          this.log(`✓ Resume initiated for ${entry.pool.name}`);
+        } catch (err) {
+          this.logError(`Failed to resume ${entry.pool.name}: ${err.message}`);
+        }
+      }
+
+      setTimeout(() => this.scanSynapsePools(), 3000);
+    } finally {
+      this.updateSynapseButtons();
+    }
+  }
+
+  async synapsePausePool() {
+    const targetIndices = [...this.synapseSelectedIndices];
+    if (targetIndices.length === 0) return;
+
+    const relevant = targetIndices.filter(idx => {
+      const entry = this.synapsePools[idx];
+      return entry?.pool?.properties?.status === 'Online';
+    });
+
+    if (relevant.length === 0) {
+      this.log('No online pools to pause.');
+      return;
+    }
+
+    try {
+      this.elements.synapseResumeBtn.disabled = true;
+      this.elements.synapsePauseBtn.disabled = true;
+      this.log(`Pausing ${relevant.length} Synapse pool${relevant.length > 1 ? 's' : ''}...`);
+
+      for (const idx of relevant) {
+        const entry = this.synapsePools[idx];
+        try {
+          const url = `${this.baseUrl}${entry.pool.id}/pause?api-version=2021-06-01`;
+          await this.makeApiCall(url, { method: 'POST' });
+          this.log(`✓ Pause initiated for ${entry.pool.name}`);
+        } catch (err) {
+          this.logError(`Failed to pause ${entry.pool.name}: ${err.message}`);
+        }
+      }
+
+      setTimeout(() => this.scanSynapsePools(), 3000);
+    } finally {
+      this.updateSynapseButtons();
     }
   }
 }

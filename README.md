@@ -22,7 +22,9 @@ This extension provides a single interface to detect all affected resources and 
 - ✅ **Selective Enable** — Toggle individual resources or bulk re-enable all at once
 - 🗃️ **SQL Database Status** — See which Azure SQL Serverless databases are Paused vs Online without waking them
 - 🏭 **Fabric Capacity Management** — Start/stop Fabric capacities, change SKUs across all subscriptions
-- 💰 **Budget Tracker** — Total month-to-date spend with editable budget threshold and color-coded alerts
+- 🔶 **Databricks Cluster Management** — View workspaces and clusters, start/stop compute, with workspace portal links
+- 🔷 **Synapse Pool Management** — View dedicated SQL pools across workspaces, resume/pause pools
+- 💰 **Cost Summary Tab** — Consolidated MTD spend by resource group and service, with editable budget threshold
 - 📈📉🦥 **Spending Trends** — Per-resource trend icons comparing current vs. previous month spend rate
 - 🔗 **Portal Deep Links** — Click any resource name to open it directly in the Azure Portal
 - 🛡️ **Policy Compliance** — View Azure Policy compliance status and drill into non-compliant resources
@@ -136,17 +138,40 @@ Click the **🏭 Fabric** tab to manage Microsoft Fabric capacities across all y
 - View all Fabric capacities with status (Running/Paused) and current SKU
 - **Start/Stop** capacities individually or in batch (multi-select with checkboxes)
 - **Update SKU** — change capacity size (F2 through F2048)
-- Capacities grouped by subscription with cost badges
+- Capacities grouped by subscription with portal deep links
 
-### Budget Tracker
+### Databricks Tab
 
-The budget bar at the bottom shows your **total month-to-date spend** across all resources:
+Click the **🔶 Databricks** tab to manage Azure Databricks compute:
 
-- **Green** — total spend is more than $100 under budget
-- **Yellow** — total spend is within $100 of budget (or equal)
-- **Red** — total spend exceeds budget
+- View all workspaces and their clusters (listed even if no clusters are provisioned)
+- See cluster status: Running, Terminated, Pending, Restarting
+- **Start/Stop** clusters individually or in batch
+- Hyperlinks to both the Azure Portal and Databricks workspace UI
+- Grouped by workspace with cluster count
 
-The budget input is editable (default: $1500) and persists across sessions. It is a local-only threshold — not connected to Azure Budget APIs.
+### Synapse Tab
+
+Click the **🔷 Synapse** tab to manage Azure Synapse dedicated SQL pools:
+
+- View all workspaces and dedicated pools (listed even if no pools are provisioned)
+- See pool status: Online, Paused, Resuming, Pausing
+- **Resume/Pause** pools individually or in batch
+- Hyperlinks to Azure Portal and Synapse Studio
+- Grouped by workspace with pool count
+
+### Cost Summary Tab
+
+Click the **💰 Cost** tab for a consolidated view of all subscription spending:
+
+- **Budget tracker** at the top — editable threshold (default $1,500) with color-coded indicator:
+  - 🟢 Green — more than $100 under budget
+  - 🟡 Yellow — within $100 of budget
+  - 🔴 Red — over budget
+- Costs **grouped by Resource Group**, sorted by total cost descending
+- Each resource shows service type, name (portal hyperlinked), and MTD cost
+- Single Cost Management API query — no double-counting across tabs
+- Total row at the bottom
 
 ### Spending Trend Icons
 
