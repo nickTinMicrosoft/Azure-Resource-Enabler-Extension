@@ -378,6 +378,13 @@ class AzureResourceEnabler {
       databricksControls: document.getElementById('databricksControls'),
       databricksStartBtn: document.getElementById('databricksStartBtn'),
       databricksStopBtn: document.getElementById('databricksStopBtn'),
+      databricksCreateToggleBtn: document.getElementById('databricksCreateToggleBtn'),
+      databricksCreateForm: document.getElementById('databricksCreateForm'),
+      dbClusterName: document.getElementById('dbClusterName'),
+      dbNodeType: document.getElementById('dbNodeType'),
+      dbWorkerCount: document.getElementById('dbWorkerCount'),
+      databricksCreateSubmitBtn: document.getElementById('databricksCreateSubmitBtn'),
+      databricksCreateCancelBtn: document.getElementById('databricksCreateCancelBtn'),
       // Synapse elements
       synapseCount: document.getElementById('synapseCount'),
       synapseControls: document.getElementById('synapseControls'),
@@ -514,6 +521,9 @@ class AzureResourceEnabler {
     // Databricks event listeners
     e.databricksStartBtn.addEventListener('click', () => this.databricksStartCluster());
     e.databricksStopBtn.addEventListener('click', () => this.databricksStopCluster());
+    e.databricksCreateToggleBtn.addEventListener('click', () => this.toggleDatabricksCreateForm());
+    e.databricksCreateSubmitBtn.addEventListener('click', () => this.databricksCreateCluster());
+    e.databricksCreateCancelBtn.addEventListener('click', () => this.hideDatabricksCreateForm());
 
     // Synapse event listeners
     e.synapseResumeBtn.addEventListener('click', () => this.synapseResumePool());
@@ -2952,6 +2962,81 @@ class AzureResourceEnabler {
       setTimeout(() => this.scanDatabricksClusters(), 3000);
     } finally {
       this.updateDatabricksButtons();
+    }
+  }
+
+  toggleDatabricksCreateForm() {
+    const form = this.elements.databricksCreateForm;
+    if (form.style.display === 'none') {
+      form.style.display = '';
+      this.elements.dbClusterName.value = '';
+      this.elements.dbWorkerCount.value = '2';
+      this.elements.dbClusterName.focus();
+    } else {
+      form.style.display = 'none';
+    }
+  }
+
+  hideDatabricksCreateForm() {
+    this.elements.databricksCreateForm.style.display = 'none';
+  }
+
+  getSelectedDatabricksWorkspace() {
+    // Use the workspace of the first selected cluster, or the first workspace
+    if (this.databricksSelectedIndices.size > 0) {
+      const idx = [...this.databricksSelectedIndices][0];
+      const entry = this.databricksClusters[idx];
+      if (entry?.workspace) return entry.workspace;
+    }
+    // Fall back to first workspace
+    return this.databricksWorkspaces[0] || null;
+  }
+
+  async databricksCreateCluster() {
+    const workspace = this.getSelectedDatabricksWorkspace();
+    if (!workspace) {
+      this.logError('No Databricks workspace available. Please refresh first.');
+      return;
+    }
+
+    const clusterName = this.elements.dbClusterName.value.trim();
+    if (!clusterName) {
+      this.logError('Please enter a cluster name.');
+      this.elements.dbClusterName.focus();
+      return;
+    }
+
+    const nodeType = this.elements.dbNodeType.value;
+    const numWorkers = parseInt(this.elements.dbWorkerCount.value, 10) || 2;
+    const workspaceUrl = workspace.properties?.workspaceUrl;
+
+    if (!workspaceUrl) {
+      this.logError('Workspace URL not available.');
+      return;
+    }
+
+    try {
+      this.elements.databricksCreateSubmitBtn.disabled = true;
+      this.log(`Creating cluster "${clusterName}" in ${workspace.name}...`);
+
+      const url = `https://${workspaceUrl}/api/2.0/clusters/create`;
+      const body = JSON.stringify({
+        cluster_name: clusterName,
+        spark_version: '15.4.x-scala2.12',
+        node_type_id: nodeType,
+        num_workers: numWorkers,
+        autotermination_minutes: 120
+      });
+
+      await this.makeDatabricksApiCall(url, { method: 'POST', body });
+      this.log(`✓ Cluster "${clusterName}" created successfully.`);
+      this.hideDatabricksCreateForm();
+
+      setTimeout(() => this.scanDatabricksClusters(), 2000);
+    } catch (err) {
+      this.logError(`Failed to create cluster: ${err.message}`);
+    } finally {
+      this.elements.databricksCreateSubmitBtn.disabled = false;
     }
   }
 

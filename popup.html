@@ -82,6 +82,33 @@
         <div class="compute-action-row">
             <button id="databricksStartBtn" class="btn-compute-start" disabled>Start Cluster</button>
             <button id="databricksStopBtn" class="btn-compute-stop" disabled>Stop Cluster</button>
+            <button id="databricksCreateToggleBtn" class="btn-compute-create">+ Create</button>
+        </div>
+        <div id="databricksCreateForm" class="create-cluster-form" style="display:none;">
+            <div class="create-form-row">
+                <label for="dbClusterName">Name</label>
+                <input type="text" id="dbClusterName" placeholder="my-cluster" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="create-form-row">
+                <label for="dbNodeType">Node Type</label>
+                <select id="dbNodeType">
+                    <option value="Standard_DS3_v2">Standard_DS3_v2</option>
+                    <option value="Standard_DS4_v2">Standard_DS4_v2</option>
+                    <option value="Standard_DS5_v2">Standard_DS5_v2</option>
+                    <option value="Standard_D4s_v3">Standard_D4s_v3</option>
+                    <option value="Standard_D8s_v3">Standard_D8s_v3</option>
+                    <option value="Standard_E4s_v3">Standard_E4s_v3</option>
+                    <option value="Standard_E8s_v3">Standard_E8s_v3</option>
+                </select>
+            </div>
+            <div class="create-form-row">
+                <label for="dbWorkerCount">Workers</label>
+                <input type="number" id="dbWorkerCount" value="2" min="1" max="100">
+            </div>
+            <div class="create-form-actions">
+                <button id="databricksCreateSubmitBtn" class="btn-compute-start">Create</button>
+                <button id="databricksCreateCancelBtn" class="btn-cancel">Cancel</button>
+            </div>
         </div>
     </div>
 
