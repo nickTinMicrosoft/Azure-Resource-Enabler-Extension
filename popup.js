@@ -3163,7 +3163,8 @@ class AzureResourceEnabler {
         spark_version: '15.4.x-scala2.12',
         node_type_id: nodeType,
         num_workers: numWorkers,
-        autotermination_minutes: 120
+        autotermination_minutes: 120,
+        data_security_mode: 'SINGLE_USER'
       });
 
       await this.makeDatabricksApiCall(url, { method: 'POST', body });
