@@ -295,6 +295,7 @@ class AzureResourceEnabler {
     this.clientId = this.defaultClientId;
     this.tenantId = '17ab6ae4-62da-43e0-9140-dddeb0a17bf0';
     this.managementScopes = 'https://management.core.windows.net/user_impersonation offline_access openid profile';
+    this.databricksScopes = '2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/user_impersonation offline_access';
     this.graphScopes = 'https://graph.microsoft.com/User.Read openid profile';
     this.refreshSafetyWindowMs = 3 * 60 * 1000;
     this.fabricApiVersion = '2023-11-01';
@@ -751,6 +752,49 @@ class AzureResourceEnabler {
     } else {
       await this.authenticate();
     }
+  }
+
+  async getDatabricksToken() {
+    const dbToken = this.resourceTokens.databricks;
+    if (dbToken && dbToken.expiresAt > Date.now() + this.refreshSafetyWindowMs) {
+      return dbToken.accessToken;
+    }
+
+    const stored = await this.getStoredTokenBundle();
+    if (!stored?.refreshToken) {
+      throw new Error('No refresh token available. Please log in again.');
+    }
+
+    const tokenUrl = `https://login.microsoftonline.com/${this.tenantId}/oauth2/v2.0/token`;
+    const body = new URLSearchParams({
+      client_id: this.clientId,
+      grant_type: 'refresh_token',
+      refresh_token: stored.refreshToken,
+      scope: this.databricksScopes
+    });
+
+    const resp = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(`Databricks token exchange failed: ${err.error_description || resp.statusText}`);
+    }
+
+    const data = await resp.json();
+    this.resourceTokens.databricks = {
+      accessToken: data.access_token,
+      expiresAt: Date.now() + (data.expires_in * 1000)
+    };
+
+    if (data.refresh_token) {
+      await this.storeTokenBundle(data.refresh_token);
+    }
+
+    return data.access_token;
   }
 
   // ─── Token Storage ─────────────────────────────────────────────────────────
@@ -2726,8 +2770,7 @@ class AzureResourceEnabler {
   }
 
   async makeDatabricksApiCall(url, options = {}) {
-    // Use the same access token (AAD token for Databricks resource)
-    const token = this.accessToken;
+    const token = await this.getDatabricksToken();
     const headers = {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'
