@@ -765,11 +765,106 @@ class AzureResourceEnabler {
       throw new Error('No refresh token available. Please log in again.');
     }
 
+    // Try silent token exchange first
+    try {
+      return await this._exchangeDatabricksToken(stored.refreshToken);
+    } catch (err) {
+      // If consent is needed, trigger interactive auth for Databricks scope
+      if (err.message.includes('AADSTS65001') || err.message.includes('consent')) {
+        this.log('Requesting Databricks consent...');
+        return await this._interactiveDatabricksConsent();
+      }
+      throw err;
+    }
+  }
+
+  async _exchangeDatabricksToken(refreshToken) {
     const tokenUrl = `https://login.microsoftonline.com/${this.tenantId}/oauth2/v2.0/token`;
     const body = new URLSearchParams({
       client_id: this.clientId,
       grant_type: 'refresh_token',
-      refresh_token: stored.refreshToken,
+      refresh_token: refreshToken,
+      scope: this.databricksScopes
+    });
+
+    const resp = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(`Databricks token exchange failed: ${err.error_description || resp.statusText}`);
+    }
+
+    const data = await resp.json();
+    this.resourceTokens.databricks = {
+      accessToken: data.access_token,
+      expiresAt: Date.now() + (data.expires_in * 1000)
+    };
+
+    if (data.refresh_token) {
+      await this.storeTokenBundle(data.refresh_token);
+    }
+
+    return data.access_token;
+  }
+
+  async _interactiveDatabricksConsent() {
+    const { codeVerifier, codeChallenge } = await this.generatePkcePair();
+    const state = this.generateState();
+    const redirectUrl = chrome.identity.getRedirectURL();
+
+    const params = new URLSearchParams({
+      client_id: this.clientId,
+      response_type: 'code',
+      redirect_uri: redirectUrl,
+      scope: this.databricksScopes,
+      state: state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      response_mode: 'query',
+      prompt: 'consent'
+    });
+
+    const authUrl = `https://login.microsoftonline.com/${this.tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
+
+    const responseUrl = await new Promise((resolve, reject) => {
+      chrome.identity.launchWebAuthFlow(
+        { url: authUrl, interactive: true },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else {
+            resolve(response);
+          }
+        }
+      );
+    });
+
+    const responseParams = new URL(responseUrl).searchParams;
+    const error = responseParams.get('error');
+    if (error) {
+      throw new Error(`Databricks consent failed: ${error} - ${responseParams.get('error_description') || ''}`);
+    }
+
+    const returnedState = responseParams.get('state');
+    if (returnedState !== state) {
+      throw new Error('State mismatch - possible CSRF');
+    }
+
+    const code = responseParams.get('code');
+    if (!code) throw new Error('No auth code received for Databricks consent');
+
+    // Exchange code for Databricks token
+    const tokenUrl = `https://login.microsoftonline.com/${this.tenantId}/oauth2/v2.0/token`;
+    const body = new URLSearchParams({
+      client_id: this.clientId,
+      grant_type: 'authorization_code',
+      code: code,
+      redirect_uri: redirectUrl,
+      code_verifier: codeVerifier,
       scope: this.databricksScopes
     });
 
