@@ -234,6 +234,7 @@ The entire application is contained in a single-class design (`AzureResourceEnab
 | 28 | Budget Tracker | Editable budget threshold (default $1500) with color-coded total spend bar (green/yellow/red). Persisted locally. | 6 | ✅ Complete |
 | 29 | Azure Portal Deep Links | All resource names are hyperlinks to their Azure Portal blade for quick key/config access. | 6 | ✅ Complete |
 | 30 | Spending Trend Icons | Per-resource trend indicator (📈📉🦥) comparing current month daily rate vs previous month. | 6 | ✅ Complete |
+| 31 | Virtual Machine Control | New "🖥️ VMs" tab (after SQL Status) — discover VMs across all subscriptions with power state, start/stop (deallocate), request Just-In-Time RDP access (auto-enables the JIT policy when absent), and an RDP button that downloads a `.rdp` file for the VM's public IP (falling back to private) and copies the IP to the clipboard. | 7 | ✅ Complete |
 
 ### Resource Types Supported
 
@@ -757,6 +758,9 @@ Since each Edge installation generates a unique Extension ID, team distribution 
 | Key Vaults | 2023-07-01 | 2023-07-01 | 2023-07-01 |
 | Service Bus Namespaces | 2024-01-01 | 2024-01-01 | 2024-01-01 |
 | ML Workspaces | 2024-04-01 | 2024-04-01 | 2024-04-01 |
+| Virtual Machines | 2024-07-01 | 2024-07-01 (start/deallocate) | — |
+| VM Network Interfaces / Public IPs | 2023-09-01 | — | — |
+| JIT Network Access Policies | 2020-01-01 | 2020-01-01 (PUT/initiate) | — |
 
 ### E. Known Limitations
 

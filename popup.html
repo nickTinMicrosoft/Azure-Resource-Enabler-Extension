@@ -44,6 +44,7 @@
       <button class="tab active" data-tab="disabled">⚠️ Disabled (<span id="disabledCount">0</span>)</button>
       <button class="tab" data-tab="enabled">✓ Enabled (<span id="enabledCount">0</span>)</button>
       <button class="tab" data-tab="sqlstatus">🗃️ SQL Status (<span id="sqlDbCount">0</span>)</button>
+      <button class="tab" data-tab="vms">🖥️ VMs (<span id="vmCount">0</span>)</button>
       <button class="tab" data-tab="fabric">🏭 Fabric (<span id="fabricCount">0</span>)</button>
       <button class="tab" data-tab="databricks">🔶 Databricks (<span id="databricksCount">0</span>)</button>
       <button class="tab" data-tab="synapse">🔷 Synapse (<span id="synapseCount">0</span>)</button>
@@ -117,6 +118,15 @@
             <button id="synapseResumeBtn" class="btn-compute-start" disabled>Resume Pool</button>
             <button id="synapsePauseBtn" class="btn-compute-stop" disabled>Pause Pool</button>
         </div>
+    </div>
+
+    <div class="compute-controls" id="vmControls" style="display:none;">
+        <div class="compute-action-row">
+            <button id="vmStartBtn" class="btn-compute-start" disabled>Start</button>
+            <button id="vmStopBtn" class="btn-compute-stop" disabled>Stop (Deallocate)</button>
+            <button id="vmJitBtn" class="btn-compute-create" disabled>Request JIT Access</button>
+        </div>
+        <div class="compute-help">Select a VM to start, stop, or request Just-In-Time RDP access. Use the RDP button on each VM to launch a remote session or copy its IP.</div>
     </div>
 
     <div class="action-bar" id="actionBar">

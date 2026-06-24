@@ -21,6 +21,7 @@ This extension provides a single interface to detect all affected resources and 
 - 📋 **Grouped View** — Resources organized by type with clear descriptions of what's disabled
 - ✅ **Selective Enable** — Toggle individual resources or bulk re-enable all at once
 - 🗃️ **SQL Database Status** — See which Azure SQL Serverless databases are Paused vs Online without waking them
+- 🖥️ **Virtual Machine Control** — Start/stop (deallocate) VMs, request Just-In-Time RDP access, and open RDP (or copy the IP) for any VM
 - 🏭 **Fabric Capacity Management** — Start/stop Fabric capacities, change SKUs across all subscriptions
 - 🔶 **Databricks Cluster Management** — View workspaces and clusters, start/stop compute, with workspace portal links
 - 🔷 **Synapse Pool Management** — View dedicated SQL pools across workspaces, resume/pause pools
@@ -130,6 +131,16 @@ Click the **🗃️ SQL Status** tab to see the runtime state of all Azure SQL d
 - **Resuming** (blue) — database is waking up
 
 Use the **"Serverless only"** filter to show only serverless-tier databases. This view is completely read-only — it uses ARM management-plane GET calls that do **not** wake paused databases.
+
+### Virtual Machines Tab
+
+Click the **🖥️ VMs** tab (just after SQL Status) to view and control Azure VMs across all your subscriptions:
+
+- See each VM with its size and power state (running/stopped/deallocated/pending)
+- **Start** — powers on the selected VM(s)
+- **Stop (Deallocate)** — deallocates the selected VM(s) to stop compute billing
+- **Request JIT Access** — requests Just-In-Time RDP (port 3389, 3 hours) via Microsoft Defender for Cloud. If the VM has no JIT policy yet, it is enabled automatically (default policy) before access is initiated.
+- **🖥️ RDP** (per VM) — resolves the VM's public IP (falling back to private) and downloads a `.rdp` file to launch a remote session. The IP is also copied to the clipboard so you can paste it into your RDP client if it can't launch automatically.
 
 ### Fabric Capacity Tab
 

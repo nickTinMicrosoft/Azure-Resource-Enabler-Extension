@@ -284,6 +284,10 @@ class AzureResourceEnabler {
     this.synapseSelectedIndices = new Set();
     this.synapseCosts = {}; // { resourceId.toLowerCase(): { cost, currency } }
 
+    // Virtual Machine state
+    this.virtualMachines = []; // { vm, subscriptionId, subscriptionName, resourceGroup, location, powerState }
+    this.vmSelectedIndices = new Set();
+
     // Cost Summary state
     this.costSummaryData = []; // [{ resourceGroup, serviceName, resourceName, resourceId, cost, currency }]
     this.budget = 1500;
@@ -391,6 +395,12 @@ class AzureResourceEnabler {
       synapseControls: document.getElementById('synapseControls'),
       synapseResumeBtn: document.getElementById('synapseResumeBtn'),
       synapsePauseBtn: document.getElementById('synapsePauseBtn'),
+      // Virtual Machine elements
+      vmCount: document.getElementById('vmCount'),
+      vmControls: document.getElementById('vmControls'),
+      vmStartBtn: document.getElementById('vmStartBtn'),
+      vmStopBtn: document.getElementById('vmStopBtn'),
+      vmJitBtn: document.getElementById('vmJitBtn'),
     };
   }
 
@@ -529,6 +539,11 @@ class AzureResourceEnabler {
     // Synapse event listeners
     e.synapseResumeBtn.addEventListener('click', () => this.synapseResumePool());
     e.synapsePauseBtn.addEventListener('click', () => this.synapsePausePool());
+
+    // Virtual Machine event listeners
+    e.vmStartBtn.addEventListener('click', () => this.vmStart());
+    e.vmStopBtn.addEventListener('click', () => this.vmStop());
+    e.vmJitBtn.addEventListener('click', () => this.vmRequestJit());
   }
 
   // ─── Settings ──────────────────────────────────────────────────────────────
@@ -1034,6 +1049,9 @@ class AzureResourceEnabler {
 
       // Scan Synapse pools
       await this.scanSynapsePools();
+
+      // Scan Virtual Machines
+      await this.scanVirtualMachines();
     } catch (err) {
       this.logError(`Scan failed: ${err.message}`);
     } finally {
@@ -1719,6 +1737,10 @@ class AzureResourceEnabler {
     if (this.elements.synapseControls) {
       this.elements.synapseControls.style.display = this.activeTab === 'synapse' ? '' : 'none';
     }
+    // Show/hide VM controls
+    if (this.elements.vmControls) {
+      this.elements.vmControls.style.display = this.activeTab === 'vms' ? '' : 'none';
+    }
   }
 
   renderResourceList() {
@@ -1740,6 +1762,10 @@ class AzureResourceEnabler {
     }
     if (this.activeTab === 'synapse') {
       this.renderSynapseList();
+      return;
+    }
+    if (this.activeTab === 'vms') {
+      this.renderVmList();
       return;
     }
     if (this.activeTab === 'costsummary') {
@@ -3450,6 +3476,392 @@ class AzureResourceEnabler {
     } finally {
       this.updateSynapseButtons();
     }
+  }
+
+  // ─── Virtual Machine Management ──────────────────────────────────────────────
+
+  async scanVirtualMachines() {
+    if (!this.subscriptions || this.subscriptions.length === 0) return;
+
+    try {
+      this.debugLog('Scanning virtual machines...');
+      this.virtualMachines = [];
+
+      for (const sub of this.subscriptions) {
+        try {
+          const listUrl = `${this.baseUrl}/subscriptions/${sub.subscriptionId}/providers/Microsoft.Compute/virtualMachines?api-version=2024-07-01`;
+          const data = await this.makeApiCall(listUrl, { method: 'GET' });
+          const vms = data.value || [];
+          if (vms.length === 0) continue;
+
+          // Fetch power states in a single subscription-wide call
+          const powerStates = {};
+          try {
+            const statusUrl = `${this.baseUrl}/subscriptions/${sub.subscriptionId}/providers/Microsoft.Compute/virtualMachines?api-version=2024-07-01&statusOnly=true`;
+            const statusData = await this.makeApiCall(statusUrl, { method: 'GET' });
+            for (const sv of (statusData.value || [])) {
+              const ps = (sv.properties?.instanceView?.statuses || []).find(s => s.code?.startsWith('PowerState/'));
+              if (sv.id) powerStates[sv.id.toLowerCase()] = ps ? ps.code.replace('PowerState/', '') : 'unknown';
+            }
+          } catch (statusErr) {
+            this.debugLog(`VM status fetch failed for ${sub.displayName}: ${statusErr.message}`);
+          }
+
+          for (const vm of vms) {
+            this.virtualMachines.push({
+              vm,
+              subscriptionId: sub.subscriptionId,
+              subscriptionName: sub.displayName,
+              resourceGroup: vm.id.split('/')[4] || '',
+              location: vm.location,
+              powerState: powerStates[vm.id.toLowerCase()] || 'unknown'
+            });
+          }
+        } catch (err) {
+          if (!err.message.includes('404') && !err.message.includes('ResourceProviderNotRegistered')) {
+            this.debugLog(`VM scan error for ${sub.displayName}: ${err.message}`);
+          }
+        }
+      }
+
+      this.debugLog(`Found ${this.virtualMachines.length} virtual machines.`);
+      if (this.elements.vmCount) {
+        this.elements.vmCount.textContent = this.virtualMachines.length;
+      }
+
+      if (this.activeTab === 'vms') {
+        this.renderResourceList();
+      }
+    } catch (err) {
+      this.debugLog(`VM scan failed: ${err.message}`);
+    }
+  }
+
+  renderVmList() {
+    const container = this.elements.resourceList;
+
+    // Hide other toolbars
+    if (this.elements.sqlFilterToolbar) this.elements.sqlFilterToolbar.style.display = 'none';
+    if (this.elements.selectAllToolbar) this.elements.selectAllToolbar.style.display = 'none';
+    if (this.elements.actionBar) this.elements.actionBar.style.display = 'none';
+
+    if (this.virtualMachines.length === 0) {
+      container.innerHTML = '<div class="empty-state">No virtual machines found. Click refresh to scan.</div>';
+      this.updateVmButtons();
+      return;
+    }
+
+    // Group by subscription
+    const grouped = {};
+    this.virtualMachines.forEach((entry, idx) => {
+      const key = entry.subscriptionName;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push({ entry, idx });
+    });
+
+    let html = '';
+    for (const [label, items] of Object.entries(grouped)) {
+      html += `<div class="compute-category-header">
+        <span class="category-label">🖥️ ${label}</span>
+        <span class="category-count">${items.length} VM${items.length !== 1 ? 's' : ''}</span>
+      </div>`;
+
+      for (const { entry, idx } of items) {
+        const vm = entry.vm;
+        const state = entry.powerState;
+        const statusClass = state === 'running'
+          ? 'running'
+          : (state === 'starting' || state === 'stopping' || state === 'deallocating') ? 'pending' : 'stopped';
+        const size = vm.properties?.hardwareProfile?.vmSize || '';
+        const selected = this.vmSelectedIndices.has(idx) ? 'selected' : '';
+        const portalUrl = `https://portal.azure.com/#@${encodeURIComponent(this.tenantId)}/resource${vm.id}`;
+
+        html += `<div class="compute-item ${selected}" data-index="${idx}">
+          <input type="checkbox" class="capacity-checkbox" data-index="${idx}" ${this.vmSelectedIndices.has(idx) ? 'checked' : ''}>
+          <span class="compute-item-name"><a href="${portalUrl}" target="_blank" title="Open in Azure Portal">${vm.name}</a></span>
+          <span class="compute-item-detail">${size}</span>
+          <span class="compute-item-status ${statusClass}">${state}</span>
+          <button class="btn-rdp" data-index="${idx}" title="Open RDP with the VM IP, or copy the IP if RDP can't be launched">🖥️ RDP</button>
+        </div>`;
+      }
+    }
+
+    container.innerHTML = html;
+
+    container.querySelectorAll('.compute-item').forEach(el => {
+      el.addEventListener('click', (ev) => {
+        if (ev.target.closest('a') || ev.target.closest('.capacity-checkbox') || ev.target.closest('.btn-rdp')) return;
+        const idx = parseInt(el.dataset.index, 10);
+        this.vmSelectedIndices.clear();
+        this.vmSelectedIndices.add(idx);
+        this.renderVmList();
+      });
+    });
+
+    container.querySelectorAll('.capacity-checkbox').forEach(cb => {
+      cb.addEventListener('change', (ev) => {
+        const idx = parseInt(ev.target.dataset.index, 10);
+        if (ev.target.checked) {
+          this.vmSelectedIndices.add(idx);
+        } else {
+          this.vmSelectedIndices.delete(idx);
+        }
+        this.updateVmButtons();
+      });
+    });
+
+    container.querySelectorAll('.btn-rdp').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const idx = parseInt(btn.dataset.index, 10);
+        this.vmOpenRdp(idx);
+      });
+    });
+
+    this.updateVmButtons();
+  }
+
+  updateVmButtons() {
+    const e = this.elements;
+    const hasSelection = this.vmSelectedIndices.size > 0;
+    if (e.vmStartBtn) e.vmStartBtn.disabled = !hasSelection;
+    if (e.vmStopBtn) e.vmStopBtn.disabled = !hasSelection;
+    if (e.vmJitBtn) e.vmJitBtn.disabled = !hasSelection;
+  }
+
+  async vmStart() {
+    const indices = [...this.vmSelectedIndices];
+    if (indices.length === 0) return;
+
+    const relevant = indices.filter(idx => this.virtualMachines[idx]?.powerState !== 'running');
+    if (relevant.length === 0) {
+      this.log('No stopped VMs to start.');
+      return;
+    }
+
+    try {
+      this.elements.vmStartBtn.disabled = true;
+      this.elements.vmStopBtn.disabled = true;
+      this.log(`Starting ${relevant.length} VM${relevant.length > 1 ? 's' : ''}...`);
+
+      for (const idx of relevant) {
+        const entry = this.virtualMachines[idx];
+        try {
+          const url = `${this.baseUrl}${entry.vm.id}/start?api-version=2024-07-01`;
+          await this.makeApiCall(url, { method: 'POST' });
+          this.log(`✓ Start initiated for ${entry.vm.name}`);
+        } catch (err) {
+          this.logError(`Failed to start ${entry.vm.name}: ${err.message}`);
+        }
+      }
+
+      setTimeout(() => this.scanVirtualMachines(), 4000);
+    } finally {
+      this.updateVmButtons();
+    }
+  }
+
+  async vmStop() {
+    const indices = [...this.vmSelectedIndices];
+    if (indices.length === 0) return;
+
+    const relevant = indices.filter(idx => {
+      const state = this.virtualMachines[idx]?.powerState;
+      return state !== 'deallocated' && state !== 'stopped';
+    });
+    if (relevant.length === 0) {
+      this.log('No running VMs to stop.');
+      return;
+    }
+
+    try {
+      this.elements.vmStartBtn.disabled = true;
+      this.elements.vmStopBtn.disabled = true;
+      this.log(`Deallocating ${relevant.length} VM${relevant.length > 1 ? 's' : ''}...`);
+
+      for (const idx of relevant) {
+        const entry = this.virtualMachines[idx];
+        try {
+          const url = `${this.baseUrl}${entry.vm.id}/deallocate?api-version=2024-07-01`;
+          await this.makeApiCall(url, { method: 'POST' });
+          this.log(`✓ Deallocate initiated for ${entry.vm.name}`);
+        } catch (err) {
+          this.logError(`Failed to stop ${entry.vm.name}: ${err.message}`);
+        }
+      }
+
+      setTimeout(() => this.scanVirtualMachines(), 4000);
+    } finally {
+      this.updateVmButtons();
+    }
+  }
+
+  async vmRequestJit() {
+    const indices = [...this.vmSelectedIndices];
+    if (indices.length === 0) return;
+
+    try {
+      this.elements.vmJitBtn.disabled = true;
+      for (const idx of indices) {
+        await this.requestJitForVm(this.virtualMachines[idx]);
+      }
+    } finally {
+      this.updateVmButtons();
+    }
+  }
+
+  async requestJitForVm(entry) {
+    if (!entry) return;
+    const vm = entry.vm;
+    const apiVersion = '2020-01-01';
+    try {
+      this.log(`Requesting Just-In-Time access for ${vm.name}...`);
+
+      // Find an existing JIT policy that already contains this VM
+      let policyId = null;
+      try {
+        const listUrl = `${this.baseUrl}/subscriptions/${entry.subscriptionId}/providers/Microsoft.Security/jitNetworkAccessPolicies?api-version=${apiVersion}`;
+        const data = await this.makeApiCall(listUrl, { method: 'GET' });
+        const policy = (data.value || []).find(p =>
+          (p.properties?.virtualMachines || []).some(v => v.id?.toLowerCase() === vm.id.toLowerCase())
+        );
+        if (policy) policyId = policy.id;
+      } catch (listErr) {
+        this.debugLog(`JIT policy list failed for ${vm.name}: ${listErr.message}`);
+      }
+
+      // No policy yet — enable JIT for this VM by creating/updating the default policy
+      if (!policyId) {
+        this.log(`No JIT policy for ${vm.name}; enabling Just-In-Time access...`);
+        policyId = `/subscriptions/${entry.subscriptionId}/resourceGroups/${entry.resourceGroup}` +
+          `/providers/Microsoft.Security/locations/${entry.location}/jitNetworkAccessPolicies/default`;
+        const putBody = JSON.stringify({
+          kind: 'Basic',
+          location: entry.location,
+          properties: {
+            virtualMachines: [{
+              id: vm.id,
+              ports: [{
+                number: 3389,
+                protocol: '*',
+                allowedSourceAddressPrefix: '*',
+                maxRequestAccessDuration: 'PT3H'
+              }]
+            }]
+          }
+        });
+        await this.makeApiCall(`${this.baseUrl}${policyId}?api-version=${apiVersion}`, { method: 'PUT', body: putBody });
+        this.log(`✓ JIT enabled for ${vm.name}.`);
+      }
+
+      // Initiate access (open the port for the requesting source)
+      const initiateUrl = `${this.baseUrl}${policyId}/initiate?api-version=${apiVersion}`;
+      const body = JSON.stringify({
+        virtualMachines: [{
+          id: vm.id,
+          ports: [{ number: 3389, duration: 'PT3H', allowedSourceAddressPrefix: '*' }]
+        }],
+        justification: 'Requested via Azure Resource Enabler extension'
+      });
+      await this.makeApiCall(initiateUrl, { method: 'POST', body });
+      this.log(`✓ JIT access requested for ${vm.name} (RDP port 3389, 3 hours).`);
+    } catch (err) {
+      this.logError(`Failed to request JIT for ${vm.name}: ${err.message}`);
+    }
+  }
+
+  async vmOpenRdp(idx) {
+    const entry = this.virtualMachines[idx];
+    if (!entry) return;
+    const vm = entry.vm;
+
+    try {
+      this.log(`Resolving IP address for ${vm.name}...`);
+      const { publicIp, privateIp } = await this.resolveVmIp(entry);
+      const ip = publicIp || privateIp;
+      if (!ip) {
+        this.logError(`No IP address found for ${vm.name}. The VM may have no network interface or be deallocated.`);
+        return;
+      }
+      const ipType = publicIp ? 'public' : 'private';
+
+      // Attempt to open RDP by generating a downloadable .rdp file that launches mstsc
+      let launched = false;
+      try {
+        const rdpContent = [
+          `full address:s:${ip}:3389`,
+          'prompt for credentials:i:1',
+          'administrative session:i:0',
+          `gatewayhostname:s:`,
+          ''
+        ].join('\r\n');
+        const blob = new Blob([rdpContent], { type: 'application/x-rdp' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${vm.name}.rdp`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        launched = true;
+      } catch (e) {
+        this.debugLog(`RDP file generation failed: ${e.message}`);
+      }
+
+      // Always copy the IP to the clipboard as a fallback for RDP
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(ip);
+        copied = true;
+      } catch (e) {
+        this.debugLog(`Clipboard copy failed: ${e.message}`);
+      }
+
+      if (launched) {
+        this.log(`✓ Opened RDP for ${vm.name} (${ipType} IP ${ip}).${copied ? ' IP also copied to clipboard.' : ''}`);
+      } else if (copied) {
+        this.log(`Could not launch RDP. Copied ${ipType} IP ${ip} for ${vm.name} — paste it into your RDP client.`);
+      } else {
+        this.log(`RDP for ${vm.name}: ${ipType} IP is ${ip}.`);
+      }
+    } catch (err) {
+      this.logError(`RDP for ${vm.name} failed: ${err.message}`);
+    }
+  }
+
+  async resolveVmIp(entry) {
+    const vm = entry.vm;
+    let publicIp = null;
+    let privateIp = null;
+    const nics = vm.properties?.networkProfile?.networkInterfaces || [];
+
+    for (const nicRef of nics) {
+      if (!nicRef.id) continue;
+      try {
+        const nic = await this.makeApiCall(`${this.baseUrl}${nicRef.id}?api-version=2023-09-01`, { method: 'GET' });
+        const ipConfigs = nic.properties?.ipConfigurations || [];
+        for (const cfg of ipConfigs) {
+          if (!privateIp && cfg.properties?.privateIPAddress) {
+            privateIp = cfg.properties.privateIPAddress;
+          }
+          const pipRef = cfg.properties?.publicIPAddress;
+          if (pipRef?.id && !publicIp) {
+            try {
+              const pip = await this.makeApiCall(`${this.baseUrl}${pipRef.id}?api-version=2023-09-01`, { method: 'GET' });
+              if (pip.properties?.ipAddress) publicIp = pip.properties.ipAddress;
+            } catch (e) {
+              this.debugLog(`Public IP fetch failed: ${e.message}`);
+            }
+          }
+        }
+      } catch (e) {
+        this.debugLog(`NIC fetch failed: ${e.message}`);
+      }
+      if (publicIp) break;
+    }
+
+    return { publicIp, privateIp };
   }
 }
 
